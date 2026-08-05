@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+.build-venv/
+
+# Build output
+build/
+dist/
+release/
+*.spec.bak
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated model output
+*.stl
+*.obj
+*.mtl
+*.litematic
+*.report.json
+*_textures/
+*_blender_setup.py
+*.blender_emission.json
+

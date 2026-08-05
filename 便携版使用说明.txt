@@ -1,0 +1,30 @@
+Litematica 3D v0.5.0 便携版
+================================
+
+使用方法：
+1. 请先完整解压 ZIP，不要直接在压缩软件中运行。
+2. 打开解压得到的“litmetica3d-v0.5.0”文件夹。
+3. 双击“litmetica3d-v0.5.0.exe”启动软件。
+4. “_internal”文件夹包含程序依赖和 Minecraft 26.2 模型资源，请勿删除、改名或移动。
+5. 整个文件夹可以复制到其他 Windows 电脑使用，不需要安装 Python、Minecraft 或额外 JAR。
+
+模式提示：
+- 3D 打印请选择“打印”模式，以封闭、无破面的实体为目标。
+- 彩色贴图和 Blender 渲染请选择“视觉”模式并输出 OBJ。
+- 视觉 OBJ 会同时生成贴图、MTL、发光配置和 Blender 设置脚本。
+- 发光像素由材质遮罩控制；周围照明由 Blender Cycles 完成。
+- 导入 OBJ 后运行同名“_blender_setup.py”，即可创建可单独编辑的 Blender 灯光。
+- 在 Blender 的“Minecraft Lights”集合中，可像普通光源一样调整功率、颜色和半径。
+
+v0.4 发光模式：
+- none：完全不发光，不生成发光遮罩或 Blender 灯光。
+- material：仅像素材质发光，不生成 Blender 灯光对象。
+- exact：像素材质发光，并为每个发光方块创建可编辑灯光。
+- clustered：像素材质发光，并合并相邻同类光源，适合大型模型。
+
+Blender 5 使用提示：
+- 导入 OBJ 时保持默认的 Forward -Z / Up Y。
+- 新生成的设置脚本已经内嵌发光配置，不依赖外部 JSON 路径。
+- Blender 版本不支持旧合成节点接口时，脚本会跳过可选泛光，不影响材质和灯光。
+
+如果 Windows 第一次启动时进行安全检查，请等待检查完成。

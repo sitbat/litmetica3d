@@ -1,0 +1,7 @@
+{
+  "minecraft_version": "26.2",
+  "asset_type": "geometry-only",
+  "blockstates": 1198,
+  "block_models": 2657,
+  "source": "26.2-Fabric.jar"
+}
