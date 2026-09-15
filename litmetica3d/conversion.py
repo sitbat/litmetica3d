@@ -223,6 +223,7 @@ class ConversionOptions:
     regions: tuple[str, ...] = ()
     color: bool = False
     textures: bool = True
+    seamless_glass: bool = False
     geometry: str = "print"
     components: str = "keep"
     min_component_volume: float = 1 / 4096
@@ -269,6 +270,8 @@ class ConversionReport:
     vertices: int = 0
     triangles: int = 0
     geometry_mode: str = "print"
+    seamless_glass: bool = False
+    seamless_glass_blocks: int = 0
     geometry_pipeline: str = "v0.2-print"
     component_mode: str = "keep"
     cavity_mode: str = "preserve"
@@ -409,6 +412,7 @@ def convert(
         fallback_mode=options.fallback,
         optimize_mode=options.optimize,
         geometry_mode=options.geometry,
+        seamless_glass=options.geometry == "visual" and options.seamless_glass,
         geometry_pipeline=(
             "v0.4-visual-emission" if options.geometry == "visual"
             else "v0.2-print"
@@ -486,6 +490,20 @@ def convert(
             for _, pos, state in entries
             if state.name in {"minecraft:water", "minecraft:bubble_column"}
         }
+        from .glass import GLASS, glass_faces
+        glass_neighbors = {}
+        if options.geometry == 'visual' and options.seamless_glass:
+            for _, pos, state in entries:
+                if state.name not in GLASS:
+                    continue
+                if options.water == 'cube' and state.properties.get('waterlogged') == 'true':
+                    continue
+                glass_props = dict(state.properties)
+                if glass_props.get('waterlogged') == 'true':
+                    glass_props['waterlogged'] = 'false'
+                if loader.resolve(state.name, glass_props, pos).status == 'ok':
+                    glass_neighbors[pos] = state
+            progress('geometry', 0.05, f'半透明无缝玻璃：已识别 {len(glass_neighbors)} 个玻璃方块/玻璃板')
         mesh = CompactVisualMesh() if options.geometry == "visual" else None
         solid_chunks: dict[tuple[int, int, int], list] = {}
         cube_positions: set[tuple[int, int, int]] = set()
@@ -553,6 +571,13 @@ def convert(
                             )
                         else:
                             continue
+            if (options.geometry == 'visual' and options.seamless_glass
+                    and state.name in GLASS and pos in glass_neighbors):
+                local_faces = glass_faces(
+                    state.name, props, pos, glass_neighbors,
+                    loader.seamless_glass_texture(state.name),
+                )
+                report.seamless_glass_blocks += 1
             report.rendered_blocks += 1
             if options.geometry == "visual" and emission_enabled and local_faces:
                 # Cached local models must remain immutable: coordinate-specific

@@ -14,7 +14,7 @@ def test_preset_gui_layout_and_values():
     settings.clear()
     window = MainWindow()
     try:
-        assert VERSION == "0.5.0"
+        assert VERSION == "0.5.1"
         assert window.dark_theme is True
         for spin in (
             window.scale_spin, window.thickness_spin,

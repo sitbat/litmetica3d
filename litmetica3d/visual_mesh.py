@@ -217,10 +217,17 @@ def export_compact_obj(
             material = mesh.material_names[material_id]
             texture = mesh.texture_names[texture_id]
             emission = mesh.emission_names[emission_id]
+            seamless = bool(texture and texture.startswith('generated:seamless_glass/'))
+            opacity = None
+            if seamless and texture_provider:
+                from PIL import Image
+                import io
+                with Image.open(io.BytesIO(texture_provider(texture))) as glass_image:
+                    opacity = glass_image.convert('RGBA').getpixel((0, 0))[3] / 255.0
             r, g, b = (1.0, 1.0, 1.0) if texture else _resolve_block_color(material)
             stream.write(
                 f"\nnewmtl visual_{group_id}\nKd {r:.5f} {g:.5f} {b:.5f}\n"
-                f"Ka {r:.5f} {g:.5f} {b:.5f}\nKs 0 0 0\nd 1.0\n"
+                f"Ka {r:.5f} {g:.5f} {b:.5f}\nKs 0 0 0\nd {opacity if opacity is not None else 1.0:.6f}\n"
             )
             if texture and texture_provider:
                 raw = texture_provider(texture)
@@ -230,7 +237,7 @@ def export_compact_obj(
                     (texture_dir / filename).write_bytes(raw)
                     stream.write(f"map_Kd {texture_dir.name}/{filename}\n")
                     alpha = alpha_provider(texture) if alpha_provider else None
-                    if alpha:
+                    if alpha and not seamless:
                         alpha_name = _safe(texture) + "_alpha.png"
                         (texture_dir / alpha_name).write_bytes(alpha)
                         stream.write(f"map_d {texture_dir.name}/{alpha_name}\n")
@@ -247,6 +254,7 @@ def export_compact_obj(
                 "material": f"visual_{group_id}",
                 "emission_texture": emission_rel,
                 "source_level": float(emission_strength),
+                "glass_opacity": opacity,
             })
     with path.open("w", encoding="utf-8", buffering=1024 * 1024) as stream:
         stream.write(
@@ -408,7 +416,8 @@ def socket(node, *names):
 # but Blender is authoritative for emitted light and indirect illumination.
 for item in DATA["materials"]:
     rel = item.get("emission_texture")
-    if not rel:
+    opacity = item.get("glass_opacity")
+    if not rel and opacity is None:
         continue
     material = bpy.data.materials.get(item["material"])
     if material is None:
@@ -420,6 +429,21 @@ for item in DATA["materials"]:
         (node for node in nodes if node.type == "BSDF_PRINCIPLED"), None
     )
     if principled is None:
+        continue
+    if opacity is not None:
+        alpha_socket = socket(principled, "Alpha")
+        if alpha_socket is not None:
+            for link in list(alpha_socket.links):
+                links.remove(link)
+            alpha_socket.default_value = float(opacity)
+        if hasattr(material, "surface_render_method"):
+            material.surface_render_method = "DITHERED"
+        elif hasattr(material, "blend_method"):
+            material.blend_method = "HASHED"
+        roughness = socket(principled, "Roughness")
+        if roughness is not None:
+            roughness.default_value = 0.15
+    if not rel:
         continue
     image_node = nodes.get("Litematica Emission Mask")
     if image_node is None:

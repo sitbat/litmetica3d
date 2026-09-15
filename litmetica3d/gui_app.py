@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from .gui_qt import ConversionWorker
 from .gui_styles import DARK_STYLE, LIGHT_STYLE
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 EXTRA_DARK_STYLE = """
 QGroupBox {
     border: 1px solid #2a3547; border-radius: 12px;
@@ -286,6 +286,8 @@ class MainWindow(QMainWindow):
         self.visual_group = QGroupBox("视觉与发光")
         grid = QGridLayout(self.visual_group)
         self.textures_check = QCheckBox("是否带有贴图（由输出用途自动决定）")
+        self.seamless_glass_check = QCheckBox("半透明无缝玻璃")
+        self.seamless_glass_check.setToolTip("保留玻璃颜色与透明度，移除边框和同色玻璃之间的接触面；关闭时使用原版模型。")
         self.emission_combo = self._combo(
             (("不发光", "none"), ("仅材质发光", "material"),
              ("逐点灯光", "exact"), ("聚类灯光", "clustered"))
@@ -303,6 +305,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("发光规则"), 2, 0)
         grid.addWidget(self.emission_config_edit, 2, 1, 1, 2)
         grid.addWidget(self.emission_config_button, 2, 3)
+        grid.addWidget(self.seamless_glass_check, 3, 0, 1, 4)
         layout.addWidget(self.visual_group)
 
         region = QGroupBox("区域")
@@ -402,6 +405,7 @@ class MainWindow(QMainWindow):
         self.center_check.setChecked(False)
         self.color_check.setChecked(False)
         self.textures_check.setChecked(True)
+        self.seamless_glass_check.setChecked(False)
         self.emission_config_edit.clear()
         self.regions_edit.clear()
 
@@ -447,6 +451,7 @@ class MainWindow(QMainWindow):
             self._set_value(self.components_combo, values["components"])
             self._set_value(self.cavities_combo, values["cavities"])
             self._set_value(self.emission_combo, values["emission"])
+            self.seamless_glass_check.setChecked(preset == "render")
             self._sync_constraints()
         finally:
             self._applying_preset = False
@@ -468,6 +473,7 @@ class MainWindow(QMainWindow):
         )
         checks = (
             self.center_check, self.color_check, self.textures_check,
+            self.seamless_glass_check,
         )
         for combo in combos:
             combo.currentIndexChanged.connect(self._advanced_changed)
@@ -494,6 +500,7 @@ class MainWindow(QMainWindow):
             is_print = self._value(self.geometry_combo) == "print"
             is_visual = not is_stl and not is_print
             self.visual_group.setEnabled(is_visual)
+            self.seamless_glass_check.setEnabled(is_visual)
             self.visual_group.setToolTip(
                 "视觉贴图与发光仅在 OBJ + visual 时可用。"
                 if not is_visual else ""
@@ -544,7 +551,7 @@ class MainWindow(QMainWindow):
             "比例：{scale:g}  |  最小厚度：{thickness:g}  |  "
             "最小壳体体积：{min_component_volume:g}  |  居中：{center}\n"
             "OBJ颜色：{color}  |  是否带有贴图：{textures}  |  "
-            "发光模式：{blender_lights}  |  "
+            "无缝玻璃：{seamless_glass}  |  发光模式：{blender_lights}  |  "
             "强度：{emission_strength:g}\n"
             "区域：{regions}  |  发光规则：{emission_config}"
             .format(**options)
@@ -637,6 +644,7 @@ class MainWindow(QMainWindow):
             "center": self.center_check.isChecked(),
             "color": is_visual and self.color_check.isChecked(),
             "textures": has_textures,
+            "seamless_glass": is_visual and self.seamless_glass_check.isChecked(),
             "emission": has_emission,
             "emission_strength": (
                 self.emission_strength_spin.value() if has_emission else 1.0

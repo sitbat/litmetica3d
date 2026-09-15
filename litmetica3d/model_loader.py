@@ -451,6 +451,31 @@ class ModelLoader:
         self.tinted_texture_count += 1
         return key
 
+    def seamless_glass_texture(self, block_name: str) -> str:
+        """Uniform color/opacity sampled from the original texture interior."""
+        from PIL import Image
+        import io
+        base = block_name.removesuffix('_pane').split(':', 1)[1]
+        key = f'generated:seamless_glass/{base}'
+        if key not in self._generated_textures:
+            source = self._texture_image(f'minecraft:block/{base}')
+            if source is None:
+                raise ValueError(f'Missing glass texture: {base}')
+            w, h = source.size
+            pixels = list(source.crop((w//4, h//4, 3*w//4, 3*h//4)).getdata())
+            visible = [p for p in pixels if p[3] > 0]
+            if base == 'glass':
+                rgba = (220, 240, 245, 40)
+            else:
+                if not visible:
+                    raise ValueError(f'No visible glass color: {base}')
+                rgba = tuple(round(sum(p[i] for p in visible)/len(visible))
+                             for i in range(4))
+            output = io.BytesIO()
+            Image.new('RGBA', (1, 1), rgba).save(output, format='PNG')
+            self._generated_textures[key] = output.getvalue()
+        return key
+
     def texture_alpha_bytes(self, texture: str) -> bytes | None:
         image = self._texture_image(texture)
         if image is None:

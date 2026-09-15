@@ -2,7 +2,7 @@
 
 > 将 Minecraft Litematica 投影转换为适合 **3D 打印**、**模型预览**和 **Blender 渲染**的 STL / OBJ 模型。
 
-![Version](https://img.shields.io/badge/version-0.5.0--preview-f59e0b)
+![Version](https://img.shields.io/badge/version-0.5.1--preview-f59e0b)
 ![Platform](https://img.shields.io/badge/platform-Windows-2563eb)
 ![Minecraft](https://img.shields.io/badge/Minecraft-26.2-16a34a)
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776ab)
@@ -27,9 +27,9 @@ Litematica 3D 可以读取 `.litematic` 文件中的区域、坐标、方块名�
 
 ## 快速下载与使用
 
-1. 在 GitHub 的 [Releases](../../releases) 页面下载 `litmetica3d-v0.5.0-portable.zip`。
+1. 在 GitHub 的 [Releases](../../releases) 页面下载 `litmetica3d-v0.5.1-portable.zip`。
 2. 完整解压 ZIP，不要直接在压缩软件中运行。
-3. 双击 `litmetica3d-v0.5.0.exe`。
+3. 双击 `litmetica3d-v0.5.1.exe`。
 4. 选择一个 `.litematic` 文件和输出文件夹。
 5. 选择“打印”“视觉”“渲染”预设，或在“高级”页面自定义参数。
 6. 点击“开始转换”。
@@ -220,6 +220,16 @@ Litematica 3D 可以读取 `.litematic` 文件中的区域、坐标、方块名�
 - 玩家头没有离线皮肤时使用内置默认皮肤，不联网下载。
 
 透明裁切几何可能包含开放边或薄片，因此视觉 OBJ 不应直接用于 3D 打印。
+
+#### 半透明无缝玻璃
+
+在“高级 → 视觉与发光”中调整 **半透明无缝玻璃**。“渲染”预设默认开启，“视觉”预设默认关闭；此开关仅在视觉用途下可调整，打印模式不受影响。可以在高级页面手动更改，修改后进入自定义配置。
+
+- **关闭**：使用原版玻璃模型和贴图，保留原版边框。
+- **开启**：普通玻璃与 16 色染色玻璃使用无边框、均匀半透明贴图；染色玻璃保留各自颜色。同色相邻玻璃的内部接触面会删除，玻璃板仍按连接状态生成，异色之间保留颜色边界。
+- 含水玻璃在 `cube` 水体模式下仍遵循整格立方体规则；需要玻璃外观时选择 `drop` 或 `level`。
+
+OBJ 材质写入不透明度，同时生成 Blender 配置脚本。请重新转换并导入新 OBJ，保留配套 MTL 与贴图文件夹；运行同目录的 `模型名_blender_setup.py` 可明确设置玻璃 Alpha。请在材质预览或渲染视图查看，而不是实体视图。此效果使用表面透明度，不是物理厚玻璃折射；多层外表面仍会叠加透明度。
 
 ### Blender 发光
 
@@ -477,4 +487,3 @@ litmetica3d/
 **作者：b站@ZZHaccount**
 
 如果这个项目对你有帮助，欢迎在 GitHub 提交反馈，也欢迎前往 B 站关注作者。
-

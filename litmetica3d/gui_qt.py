@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from .gui_styles import DARK_STYLE, LIGHT_STYLE
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 
 class GUIConversionCancelled(Exception):
@@ -83,6 +83,7 @@ class ConversionWorker(QObject):
                     "center": self.options["center"],
                     "color": self.options["color"],
                     "textures": self.options["textures"],
+                    "seamless_glass": self.options.get("seamless_glass", False),
                     "emission": self.options["emission"],
                     "emission_strength": self.options["emission_strength"],
                     "blender_lights": self.options["blender_lights"],
