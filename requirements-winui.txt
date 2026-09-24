@@ -1,0 +1,4 @@
+# Headless engine only; the native frontend does not require Qt.
+numpy>=1.26
+manifold3d>=3.5,<3.6
+Pillow>=10

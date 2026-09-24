@@ -1,5 +1,18 @@
 # Litematica 3D
 
+## Windows 原生 WinUI 3 前端
+
+本地新增 C# / XAML 原生前端，复用现有 Python 转换引擎。支持批量导入、打印/视觉/渲染预设、
+高级参数、实时进度、取消、日志、报告以及深浅色主题。
+
+```powershell
+.\setup_winui.ps1
+.\run_winui.ps1
+```
+
+需要 Windows x64、.NET 10 SDK 和 Python 3.10+。详细说明见 [WinUI 前端文档](frontend/README.md)。
+下文原 PySide6 版本的使用方法继续保留。
+
 > 将 Minecraft Litematica 投影转换为适合 **3D 打印**、**模型预览**和 **Blender 渲染**的 STL / OBJ 模型。
 
 ![Version](https://img.shields.io/badge/version-0.5.1--preview-f59e0b)

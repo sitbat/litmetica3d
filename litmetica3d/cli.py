@@ -74,9 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.gui:
-        from .gui_app import launch_gui
-        launch_gui()
-        return 0
+        from .desktop import launch_gui
+        return launch_gui()
     if not args.input:
         parser.print_help()
         return 1
