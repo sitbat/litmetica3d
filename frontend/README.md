@@ -1,5 +1,11 @@
 # Litematica 3D — WinUI 3 前端
 
+界面采用顶部导航和双栏转换工作台：文件与保存位置在左侧，用途选择在右侧。
+高级参数分组折叠，仅显示当前用途适用的设置。窄窗口自动改为纵向布局。
+活动页提供结果卡片、实时日志与 JSON 报告；底部转换按钮和进度始终可见。
+
+![新版转换工作台](screenshots/workspace-light.png)
+
 本地 Windows 桌面界面使用 C# / XAML 和 WinUI 3，直接调用既有 Python 转换引擎。
 无需 Qt、WebView 或本地 HTTP 服务。旧 PySide6 界面与 CLI 保留，便于对照和兼容原有工作流。
 
@@ -53,7 +59,8 @@ frontend/Litmetica3D.WinUI/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/L
 ## 实现
 
 - `Litmetica3D.WinUI/MainWindow.xaml`：导航、状态栏和主题资源。
-- `MainWindow.xaml.cs`：原生控件、文件选择器、参数联动和交互。
+- `MainWindow.xaml.cs`：页面切换、文件选择器、参数联动和转换交互。
+- `MainWindow.Layout.cs`：响应式工作台、预设选择、参数分组和活动页面。
 - `EngineClient.cs`：无 shell 的 Python 子进程、UTF-8 管道、取消与进程树回收。
 - `../litmetica3d/winui_bridge.py`：JSON-lines 协议、批量验证、临时输出与报告发布。
 
@@ -78,3 +85,18 @@ JSON-lines 子进程退出、stdin 取消、临时文件清理、同名冲突及
 错误传播、取消三项端到端检查通过。原生窗口和导航、参数禁用状态已检查。
 系统文件选择器成功打开，但自动化工具未能定位其独立 PickerHost 窗口，
 因此未完成选择器内的自动点击验证。没有进行真实大型投影的性能测试。
+
+## 原生布局检查
+
+Debug 构建提供仅用于测试的 `--layout-smoke` 入口。Release 不包含此入口或测试代码。
+检查在应用自身的 UI 线程中运行，使用 RenderTargetBitmap 渲染真实 WinUI 控件；
+不发送桌面键鼠输入，不截取其他应用，不修改用户设置。
+
+```powershell
+dotnet build frontend/Litmetica3D.WinUI/Litmetica3D.WinUI.csproj -c Debug -p:Platform=x64
+& .\frontend\Litmetica3D.WinUI\bin\x64\Debug\net10.0-windows10.0.26100.0\win-x64\Litmetica3D.WinUI.exe --layout-smoke work/layout-qa
+```
+
+输出包含浅色/深色工作台、窄窗口、高级参数、活动与设置页 PNG，以及 `checks.txt`。
+校验空状态、三种预设的实际参数、STL 联动、自定义配置、文件增删、忙碌锁定、
+快速导航、响应式列布局和结果卡片。活动页使用明确构造的测试报告，不代表真实转换输出。
