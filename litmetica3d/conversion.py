@@ -485,7 +485,7 @@ def convert(
             tile_entities = {}
         occupied_positions = {
             pos for _, pos, state in entries if state.name not in AIR_BLOCKS
-        }
+        } if options.geometry == "visual" and emission_enabled and _uses_editable_blender_lights(options.blender_lights) else set()
 
         water_heights = {
             pos: (
@@ -494,7 +494,7 @@ def convert(
             )
             for _, pos, state in entries
             if state.name in {"minecraft:water", "minecraft:bubble_column"}
-        }
+        } if options.water == "level" else {}
         from .glass import GLASS, glass_faces
         glass_neighbors = {}
         if options.geometry == 'visual' and options.seamless_glass:
@@ -543,7 +543,7 @@ def convert(
                     state.name, props, pos, closed=options.geometry == "print"
                 )
                 if result.status == "ok":
-                    local_faces = list(result.faces)
+                    local_faces = result.faces
                 else:
                     entity_texture_override = None
                     if options.geometry == "visual":
@@ -584,27 +584,32 @@ def convert(
                 )
                 report.seamless_glass_blocks += 1
             report.rendered_blocks += 1
-            if options.geometry == "visual" and emission_enabled and local_faces:
+            if (options.geometry == "visual" and emission_enabled and local_faces
+                    and (block_light_level(state.name, props) > 0 or any(
+                        face.emission_strength != 0 or face.emission_texture is not None
+                        for face in local_faces))):
                 # Cached local models must remain immutable: coordinate-specific
                 # overrides may give identical states different strengths.
-                local_faces = [
-                    Face(
-                        list(face.vertices), face.normal, face.material,
-                        list(face.uvs) if face.uvs else None, face.texture,
-                        face.emission_texture, face.emission_strength,
-                    )
-                    for face in local_faces
-                ]
+                local_faces = list(local_faces)
                 multiplier, override_color = resolve_override(
                     emission_config, state.name, props, region, pos
                 )
                 multiplier *= max(0.0, float(options.emission_strength))
                 block_peak = 0.0
-                for face in local_faces:
+                for face_index, face in enumerate(local_faces):
                     spec = emission_profile(
                         state.name, face.texture, props,
                         explicit_level=face.emission_strength,
                     )
+                    if spec is None:
+                        if face.emission_texture is None and face.emission_strength == 0:
+                            continue
+                    # Copy only the metadata that will change. Geometry and UV
+                    # stay immutable and shared with the local model cache.
+                    face = Face(face.vertices, face.normal, face.material,
+                                face.uvs, face.texture,
+                                face.emission_texture, face.emission_strength)
+                    local_faces[face_index] = face
                     if spec is None:
                         face.emission_texture = None
                         face.emission_strength = 0.0
@@ -640,7 +645,6 @@ def convert(
                             "power": 120.0,
                             "radius": 0.14,
                         })
-            offset = Vec3(*map(float, pos))
             if options.geometry == "print":
                 if not local_faces:
                     continue
@@ -664,12 +668,8 @@ def convert(
                 solid_chunks.setdefault(chunk, []).append(local_solid)
                 solid_report.boolean_inputs += 1
             else:
-                for face in local_faces:
-                    mesh.add_face(Face(
-                        [v + offset for v in face.vertices],
-                        face.normal, face.material, face.uvs, face.texture,
-                        face.emission_texture, face.emission_strength,
-                    ))
+                offset = tuple(map(float, pos))
+                mesh.add_faces(local_faces, offset=offset)
 
         if options.geometry == "print":
             for box_origin, box_size in greedy_cube_boxes(cube_positions):

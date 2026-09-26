@@ -1272,7 +1272,7 @@ class ModelLoader:
             position if random_model else None, self.minimum_thickness, closed,
             self.visual_textures, self.solid_textures,
         )
-        cached = self._geometry_cache.get(cache_key)
+        cached = None if random_model else self._geometry_cache.get(cache_key)
         if cached is not None:
             return cached
 
@@ -1295,6 +1295,15 @@ class ModelLoader:
             entries = []
         if not entries:
             return ModelResult((), "unknown_state", "no matching variant")
+
+        if random_model:
+            # Coordinate hashing still chooses the exact same weighted variant.
+            # Only the selected geometry is shared, never coordinate overrides.
+            selection = json.dumps(entries, sort_keys=True, separators=(",", ":"))
+            cache_key = cache_key[:2] + (selection,) + cache_key[3:]
+            cached = self._geometry_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
         try:
             all_faces: list[Face] = []

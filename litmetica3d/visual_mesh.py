@@ -41,6 +41,7 @@ class CompactVisualMesh:
     _texture_buffer: list[int] = field(default_factory=list)
     _emission_buffer: list[int] = field(default_factory=list)
     _emission_strength_buffer: list[float] = field(default_factory=list)
+    _pending_faces: int = 0
     bounds_min: np.ndarray = field(
         default_factory=lambda: np.full(3, np.inf, dtype=np.float64)
     )
@@ -56,42 +57,56 @@ class CompactVisualMesh:
             names.append(value)
         return result
 
-    def add_face(self, face: Face) -> None:
-        if len(face.vertices) != 4:
-            return
-        vertices = np.asarray(
-            [(v.x, v.y, v.z) for v in face.vertices], dtype=np.float32
-        )
-        if not np.isfinite(vertices).all():
-            return
-        uvs = np.asarray(
-            face.uvs if face.uvs and len(face.uvs) == 4
-            else [(0.0, 0.0)] * 4,
-            dtype=np.float32,
-        )
-        self.bounds_min = np.minimum(self.bounds_min, vertices.min(axis=0))
-        self.bounds_max = np.maximum(self.bounds_max, vertices.max(axis=0))
-        self._vertices_buffer.append(vertices)
-        self._uvs_buffer.append(uvs)
-        self._material_buffer.append(self._id(
-            face.material, self._materials, self.material_names
-        ))
-        self._texture_buffer.append(self._id(
-            face.texture, self._textures, self.texture_names
-        ))
-        self._emission_buffer.append(self._id(
-            face.emission_texture, self._emissions, self.emission_names
-        ))
-        self._emission_strength_buffer.append(float(face.emission_strength))
-        if len(self._vertices_buffer) >= self.chunk_size:
-            self.flush()
+    def add_face(self, face: Face, offset=None) -> None:
+        self.add_faces((face,), offset)
+
+    def add_faces(self, faces, offset=None) -> None:
+        """Batch work without increasing the existing chunk-size bound.
+
+        Translation remains Python float addition followed by float32 casting,
+        exactly as add_face; do not pre-cast local vertices before translation.
+        """
+        start = 0
+        while start < len(faces):
+            end = min(len(faces), start + max(1, self.chunk_size - self._pending_faces))
+            batch = [f for f in faces[start:end] if len(f.vertices) == 4]
+            start = end
+            if not batch:
+                continue
+            if offset is None:
+                vertices = np.asarray([[(v.x, v.y, v.z) for v in f.vertices]
+                                       for f in batch], dtype=np.float32)
+            else:
+                x, y, z = offset
+                vertices = np.asarray([[(v.x+x, v.y+y, v.z+z) for v in f.vertices]
+                                       for f in batch], dtype=np.float32)
+            valid = np.isfinite(vertices).all(axis=(1, 2))
+            if not valid.all():
+                batch = [f for f, keep in zip(batch, valid) if keep]
+                vertices = vertices[valid]
+            if not batch:
+                continue
+            uvs = np.asarray([f.uvs if f.uvs and len(f.uvs) == 4
+                              else [(0.0, 0.0)] * 4 for f in batch], dtype=np.float32)
+            self.bounds_min = np.minimum(self.bounds_min, vertices.min(axis=(0, 1)))
+            self.bounds_max = np.maximum(self.bounds_max, vertices.max(axis=(0, 1)))
+            self._vertices_buffer.append(vertices)
+            self._uvs_buffer.append(uvs)
+            for f in batch:
+                self._material_buffer.append(self._id(f.material, self._materials, self.material_names))
+                self._texture_buffer.append(self._id(f.texture, self._textures, self.texture_names))
+                self._emission_buffer.append(self._id(f.emission_texture, self._emissions, self.emission_names))
+                self._emission_strength_buffer.append(float(f.emission_strength))
+            self._pending_faces += len(batch)
+            if self._pending_faces >= self.chunk_size:
+                self.flush()
 
     def flush(self) -> None:
         if not self._vertices_buffer:
             return
         self.chunks.append(_Chunk(
-            np.asarray(self._vertices_buffer, dtype=np.float32),
-            np.asarray(self._uvs_buffer, dtype=np.float32),
+            self._vertices_buffer[0] if len(self._vertices_buffer) == 1 else np.concatenate(self._vertices_buffer),
+            self._uvs_buffer[0] if len(self._uvs_buffer) == 1 else np.concatenate(self._uvs_buffer),
             np.asarray(self._material_buffer, dtype=np.int32),
             np.asarray(self._texture_buffer, dtype=np.int32),
             np.asarray(self._emission_buffer, dtype=np.int32),
@@ -103,12 +118,11 @@ class CompactVisualMesh:
         self._texture_buffer.clear()
         self._emission_buffer.clear()
         self._emission_strength_buffer.clear()
+        self._pending_faces = 0
 
     @property
     def face_count(self) -> int:
-        return sum(len(chunk.vertices) for chunk in self.chunks) + len(
-            self._vertices_buffer
-        )
+        return sum(len(chunk.vertices) for chunk in self.chunks) + self._pending_faces
 
     @property
     def triangle_count(self) -> int:
@@ -210,6 +224,26 @@ def export_compact_obj(
             key = (material_id, texture_id, emission_id, round(float(strength), 5))
             combinations.setdefault(key, len(combinations))
     blender_materials = []
+    # Store only small file-name records, not another image/PNG cache.
+    texture_exports = {}
+    emission_exports = {}
+    # Legacy _safe can map distinct resource IDs onto the same filename.
+    # In that unusual case preserve the original last-write-wins order.
+    paths = {}
+    deduplicate_textures = True
+    for _, texture_id, emission_id, strength in combinations:
+        texture, emission = mesh.texture_names[texture_id], mesh.emission_names[emission_id]
+        candidates = []
+        if texture:
+            candidates.extend(((_safe(texture) + '.png', ('color', texture)),
+                               (_safe(texture) + '_alpha.png', ('alpha', texture))))
+        if emission and strength > 0:
+            candidates.append((_safe(emission) + '.png', ('emission', emission)))
+        for filename, resource in candidates:
+            previous = paths.setdefault(filename, resource)
+            if previous != resource:
+                deduplicate_textures = False
+    del paths
     with mtl_path.open("w", encoding="utf-8") as stream:
         stream.write("# MTL generated by litmetica3d compact visual mesh\n")
         for (
@@ -231,25 +265,36 @@ def export_compact_obj(
                 f"Ka {r:.5f} {g:.5f} {b:.5f}\nKs 0 0 0\nd {opacity if opacity is not None else 1.0:.6f}\n"
             )
             if texture and texture_provider:
-                raw = texture_provider(texture)
-                if raw:
-                    texture_dir.mkdir(parents=True, exist_ok=True)
-                    filename = _safe(texture) + ".png"
-                    (texture_dir / filename).write_bytes(raw)
+                if texture not in texture_exports or not deduplicate_textures:
+                    raw = texture_provider(texture)
+                    filename = alpha_name = None
+                    if raw:
+                        texture_dir.mkdir(parents=True, exist_ok=True)
+                        filename = _safe(texture) + ".png"
+                        (texture_dir / filename).write_bytes(raw)
+                        alpha = alpha_provider(texture) if alpha_provider else None
+                        if alpha and not seamless:
+                            alpha_name = _safe(texture) + "_alpha.png"
+                            (texture_dir / alpha_name).write_bytes(alpha)
+                    texture_exports[texture] = (filename, alpha_name)
+                filename, alpha_name = texture_exports[texture]
+                if filename:
                     stream.write(f"map_Kd {texture_dir.name}/{filename}\n")
-                    alpha = alpha_provider(texture) if alpha_provider else None
-                    if alpha and not seamless:
-                        alpha_name = _safe(texture) + "_alpha.png"
-                        (texture_dir / alpha_name).write_bytes(alpha)
+                    if alpha_name:
                         stream.write(f"map_d {texture_dir.name}/{alpha_name}\n")
             emission_rel = None
             if emission and emission_provider and emission_strength > 0:
-                raw = emission_provider(emission)
-                if raw:
-                    texture_dir.mkdir(parents=True, exist_ok=True)
-                    emission_name = _safe(emission) + ".png"
-                    (texture_dir / emission_name).write_bytes(raw)
-                    emission_rel = f"{texture_dir.name}/{emission_name}"
+                if emission not in emission_exports or not deduplicate_textures:
+                    raw = emission_provider(emission)
+                    emitted = None
+                    if raw:
+                        texture_dir.mkdir(parents=True, exist_ok=True)
+                        emission_name = _safe(emission) + ".png"
+                        (texture_dir / emission_name).write_bytes(raw)
+                        emitted = f"{texture_dir.name}/{emission_name}"
+                    emission_exports[emission] = emitted
+                emission_rel = emission_exports[emission]
+                if emission_rel:
                     stream.write(f"Ke 1 1 1\nmap_Ke {emission_rel}\n")
             blender_materials.append({
                 "material": f"visual_{group_id}",

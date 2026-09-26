@@ -19,8 +19,9 @@ from PySide6.QtWidgets import (
 
 from .gui_qt import ConversionWorker
 from .gui_styles import DARK_STYLE, LIGHT_STYLE
+from .output_layout import normalize_output_root
 
-VERSION = "0.5.2"
+VERSION = "0.5.3"
 EXTRA_DARK_STYLE = """
 QGroupBox {
     border: 1px solid #2a3547; border-radius: 12px;
@@ -76,7 +77,9 @@ class MainWindow(QMainWindow):
         self.elapsed_timer.timeout.connect(self._update_elapsed)
         self._build()
         self._connect_advanced_signals()
-        self.output_edit.setText(self.settings.value("output", ""))
+        saved_output = self.settings.value("output", "")
+        if saved_output:
+            self.output_edit.setText(str(normalize_output_root(saved_output)))
         self._apply_preset("print", navigate=False)
         self._apply_theme()
         self._show_page(0)
@@ -155,7 +158,7 @@ class MainWindow(QMainWindow):
         choose_input = QPushButton("选择投影")
         choose_input.clicked.connect(self._choose_input)
         self.output_edit = QLineEdit()
-        self.output_edit.setPlaceholderText("选择输出文件夹")
+        self.output_edit.setPlaceholderText("选择总输出位置（自动建立 L3D_output）")
         choose_output = QPushButton("选择路径")
         choose_output.clicked.connect(self._choose_output)
         grid.addWidget(QLabel("投影文件"), 0, 0)
@@ -588,7 +591,7 @@ class MainWindow(QMainWindow):
             return
         self.input_edit.setText(file)
         if not self.output_edit.text().strip():
-            self.output_edit.setText(str(pathlib.Path(file).parent))
+            self.output_edit.setText(str(normalize_output_root(pathlib.Path(file).parent)))
         try:
             from .litematic import load_schematic
             schematic = load_schematic(file)
@@ -598,10 +601,11 @@ class MainWindow(QMainWindow):
             self._log(f"读取区域失败：{exc}")
 
     def _choose_output(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择输出文件夹")
+        folder = QFileDialog.getExistingDirectory(self, "选择输出位置（自动建立 L3D_output）")
         if folder:
-            self.output_edit.setText(folder)
-            self.settings.setValue("output", folder)
+            output_root = str(normalize_output_root(folder))
+            self.output_edit.setText(output_root)
+            self.settings.setValue("output", output_root)
 
     def _choose_emission_config(self):
         file, _ = QFileDialog.getOpenFileName(
@@ -611,7 +615,8 @@ class MainWindow(QMainWindow):
             self.emission_config_edit.setText(file)
 
     def _open_output(self):
-        folder = self.output_edit.text().strip()
+        selected = self.output_edit.text().strip()
+        folder = str(normalize_output_root(selected)) if selected else ""
         if folder and pathlib.Path(folder).exists():
             os.startfile(folder)
         else:
@@ -670,13 +675,15 @@ class MainWindow(QMainWindow):
 
     def _start(self):
         source = pathlib.Path(self.input_edit.text().strip())
-        output = self.output_edit.text().strip()
+        selected = self.output_edit.text().strip()
+        output = str(normalize_output_root(selected)) if selected else ""
         if not source.is_file() or source.suffix.lower() != ".litematic":
             QMessageBox.warning(self, "投影文件", "请选择一个有效的 .litematic 文件。")
             return
         if not output:
             QMessageBox.warning(self, "输出位置", "请选择输出文件夹。")
             return
+        self.output_edit.setText(output)
         self.settings.setValue("output", output)
         self.cancel_event.clear()
         self.progress_bar.setValue(0)

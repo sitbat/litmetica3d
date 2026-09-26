@@ -67,7 +67,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--info", action="store_true")
     parser.add_argument("--list-regions", action="store_true")
     parser.add_argument("--gui", action="store_true")
-    parser.add_argument("--version", action="version", version="litmetica3d 0.5.2")
+    parser.add_argument("--version", action="version", version="litmetica3d 0.5.3")
     return parser
 
 

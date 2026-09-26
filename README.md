@@ -2,7 +2,7 @@
 
 > 将 Minecraft Litematica 投影转换为适合 **3D 打印**、**模型预览**和 **Blender 渲染**的 STL / OBJ 模型。
 
-![Version](https://img.shields.io/badge/version-0.5.2--preview-f59e0b)
+![Version](https://img.shields.io/badge/version-0.5.3--preview-f59e0b)
 ![Platform](https://img.shields.io/badge/platform-Windows-2563eb)
 ![Minecraft](https://img.shields.io/badge/Minecraft-26.2-16a34a)
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776ab)
@@ -27,10 +27,10 @@ Litematica 3D 可以读取 `.litematic` 文件中的区域、坐标、方块名�
 
 ## 快速下载与使用
 
-1. 下载 [v0.5.2 预览版便携包](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.5.2/litmetica3d-v0.5.2-alpha-fixed.zip)。
+1. 下载 [v0.5.3 预览版便携包](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.5.3/litmetica3d-v0.5.3-L3D_output-portable.zip)；需要旧版时可下载 [v0.5.2 预览版](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.5.2/litmetica3d-v0.5.2-alpha-fixed.zip)。
 2. 完整解压 ZIP，不要直接在压缩软件中运行。
-3. 双击 `litmetica3d-v0.5.2.exe`。
-4. 选择一个 `.litematic` 文件和输出文件夹。
+3. 双击 `litmetica3d-v0.5.3.exe`。
+4. 选择一个 `.litematic` 文件和总输出位置；界面会自动按 `L3D_output/投影名/` 分类。
 5. 选择“打印”“视觉”“渲染”预设，或在“高级”页面自定义参数。
 6. 点击“开始转换”。
 
@@ -306,6 +306,21 @@ OBJ 材质写入不透明度，同时生成 Blender 配置脚本。请重新转�
 
 ## 输出文件
 
+图形界面会在选择的总输出位置下建立 `L3D_output`，再按投影文件名分别建立子文件夹。单个投影的模型、材质、贴图及 Blender 辅助文件都保存在同一子文件夹，例如：
+
+```text
+所选位置/
+└── L3D_output/
+    ├── 城堡/
+    │   └── 城堡.stl
+    └── 农场/
+        ├── 农场.obj
+        ├── 农场.mtl
+        └── 农场_textures/
+```
+
+如果选择的已经是 `L3D_output` 文件夹，不会重复创建同名文件夹。再次转换同名投影时会使用 `投影名 (2)`、`投影名 (3)` 等新子文件夹，保留以前的结果。命令行明确指定的输出文件路径仍按原路径写入。
+
 ### 打印 STL
 
 ```text
@@ -480,6 +495,14 @@ litmetica3d/
 3. 修改模型解析、UV 或布尔流程时添加回归测试。
 4. 运行 `python -m pytest -q` 并确认测试通过。
 5. 不要提交构建目录、虚拟环境、缓存或便携版二进制文件。
+
+## 转换性能与结果一致性
+
+转换器按实际选中的模型组合复用局部几何；随机外观仍由原坐标和完整状态决定，不会因为缓存复用而统一朝向或随机样式。视觉网格直接写入平移后的顶点，减少临时面片对象；发光处理只复制需要修改的面片元数据，不修改共享的几何与UV。仅在水位或可编辑灯光需要时建立邻居查询表。
+
+视觉网格按批次检查和写入，维持每块最多8192面的内存边界，减少逐面创建小数组。确定没有方块光级、模型显式发光属性及发光纹理时，跳过不必要的发光计算；坐标发光规则仍保留。多个材质共用同一贴图时，只编码和写出一次，不合并材质，也不增加图像缓存。
+
+这些内部优化自动生效，不增加并行进程或扩大网格分块，也不执行额外减面、坐标吸附、贴图替换或透明度近似。它们与下方会改变镂空几何的可选「特殊优化」不同。性能验证同时检查各类模型耗时和峰值内存，不以牺牲某一类模型的明显性能换取平均值。
 
 ## 特殊优化：填平贴图镂空
 

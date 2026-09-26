@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from .gui_styles import DARK_STYLE, LIGHT_STYLE
+from .output_layout import next_model_path, normalize_output_root
 
-VERSION = "0.5.2"
+VERSION = "0.5.3"
 
 
 class GUIConversionCancelled(Exception):
@@ -56,7 +57,7 @@ class ConversionWorker(QObject):
     def __init__(self, files, output_dir, options, context, cancel_event):
         super().__init__()
         self.files = [pathlib.Path(p) for p in files]
-        self.output_dir = pathlib.Path(output_dir)
+        self.output_dir = normalize_output_root(output_dir)
         self.options = options
         self.context = context
         self.cancel_event = cancel_event
@@ -73,7 +74,7 @@ class ConversionWorker(QObject):
                 fmt = self.options["format"]
                 data = {
                     "input_path": source,
-                    "output_path": self.output_dir / f"{source.stem}.{fmt}",
+                    "output_path": next_model_path(self.output_dir, source, fmt),
                     "output_format": fmt,
                     "water": self.options["water"],
                     "fallback": self.options["fallback"],
@@ -361,10 +362,10 @@ class MainWindow(QMainWindow):
         card.box.addLayout(actions)
         layout.addWidget(card)
 
-        output = Card("输出位置", "每个投影按原文件名写入此文件夹。")
+        output = Card("输出位置", "模型统一保存在 L3D_output/投影名/ 子文件夹。")
         row = QHBoxLayout()
         self.output_edit = QLineEdit()
-        self.output_edit.setPlaceholderText("请选择输出文件夹")
+        self.output_edit.setPlaceholderText("请选择总输出位置（自动建立 L3D_output）")
         browse = QPushButton("选择文件夹")
         browse.clicked.connect(self._choose_output)
         row.addWidget(self.output_edit, 1)
@@ -701,7 +702,7 @@ class MainWindow(QMainWindow):
                 known.add(str(path).lower())
         self._refresh_files()
         if self.files and not self.output_edit.text():
-            self.output_edit.setText(str(self.files[0].parent))
+            self.output_edit.setText(str(normalize_output_root(self.files[0].parent)))
         if self.files:
             try:
                 from .litematic import load_schematic
@@ -731,9 +732,9 @@ class MainWindow(QMainWindow):
         self.regions_edit.clear()
 
     def _choose_output(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择输出文件夹")
+        folder = QFileDialog.getExistingDirectory(self, "选择输出位置（自动建立 L3D_output）")
         if folder:
-            self.output_edit.setText(folder)
+            self.output_edit.setText(str(normalize_output_root(folder)))
 
     def _choose_emission_config(self):
         file, _ = QFileDialog.getOpenFileName(
@@ -743,7 +744,8 @@ class MainWindow(QMainWindow):
             self.emission_config_edit.setText(file)
 
     def _open_output(self):
-        folder = self.output_edit.text().strip()
+        selected = self.output_edit.text().strip()
+        folder = str(normalize_output_root(selected)) if selected else ""
         if folder and pathlib.Path(folder).exists():
             os.startfile(folder)
         else:
@@ -779,10 +781,12 @@ class MainWindow(QMainWindow):
         if not self.files:
             QMessageBox.warning(self, "缺少投影", "请先选择投影文件。")
             return
-        output = self.output_edit.text().strip()
+        selected = self.output_edit.text().strip()
+        output = str(normalize_output_root(selected)) if selected else ""
         if not output:
             QMessageBox.warning(self, "缺少路径", "请选择输出文件夹。")
             return
+        self.output_edit.setText(output)
         self._save()
         self.cancel_event.clear()
         self.progress_bar.setValue(0)
@@ -874,7 +878,9 @@ class MainWindow(QMainWindow):
                 self.settings.setValue(key, value)
 
     def _restore(self):
-        self.output_edit.setText(self.settings.value("output", ""))
+        saved_output = self.settings.value("output", "")
+        if saved_output:
+            self.output_edit.setText(str(normalize_output_root(saved_output)))
         self.geometry = self.settings.value("geometry", "print")
         for combo, key, default in (
             (self.format_combo, "format", "stl"),
