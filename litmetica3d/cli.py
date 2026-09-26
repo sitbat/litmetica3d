@@ -44,6 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--center", action="store_true")
     parser.add_argument("--color", action="store_true")
     parser.add_argument("--seamless-glass", action="store_true", help="视觉模式使用半透明无缝玻璃")
+    parser.add_argument("--solid-textures", action="store_true", help="特殊优化：填平贴图镂空，保留原贴图，显著减少像素几何")
     parser.add_argument(
         "--textures", action=argparse.BooleanOptionalAction, default=True,
         help="视觉 OBJ 使用原版纹理（STL 始终不包含纹理）",
@@ -66,7 +67,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--info", action="store_true")
     parser.add_argument("--list-regions", action="store_true")
     parser.add_argument("--gui", action="store_true")
-    parser.add_argument("--version", action="version", version="litmetica3d 0.5.1")
+    parser.add_argument("--version", action="version", version="litmetica3d 0.5.2")
     return parser
 
 
@@ -121,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
                 boolean_fallback=args.boolean_fallback,
                 emission=args.emission,
                 seamless_glass=args.seamless_glass,
+                solid_textures=args.solid_textures,
                 emission_strength=args.emission_strength,
                 emission_config=(
                     pathlib.Path(args.emission_config)

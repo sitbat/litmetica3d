@@ -187,10 +187,11 @@ class ModelLoader:
     }
 
     def __init__(self, asset_path: str | Path, minimum_thickness: float = 1 / 16,
-                 visual_textures: bool = False):
+                 visual_textures: bool = False, solid_textures: bool = False):
         self.asset_path = Path(asset_path)
         self.minimum_thickness = max(0.0, float(minimum_thickness))
         self.visual_textures = bool(visual_textures)
+        self.solid_textures = bool(solid_textures)
         self.jar = (
             zipfile.ZipFile(str(self.asset_path), "r")
             if self.asset_path.is_file() else None
@@ -484,7 +485,9 @@ class ModelLoader:
         if alpha.getextrema() == (255, 255):
             return None
         output = io.BytesIO()
-        alpha.save(output, format="PNG")
+        # OBJ importers differ: some sample map_d RGB, Blender may sample
+        # its Alpha socket. Store the mask in BOTH so either is correct.
+        Image.merge("RGBA", (alpha, alpha, alpha, alpha)).save(output, format="PNG")
         return output.getvalue()
 
     def emission_texture(self, texture: str, profile: str) -> str | None:
@@ -1071,7 +1074,7 @@ class ModelLoader:
             except (TypeError, ValueError):
                 element_emission = 0.0
 
-            if self.visual_textures and not needs_thickening:
+            if self.visual_textures and not self.solid_textures and not needs_thickening:
                 shell_faces = self._alpha_shell_faces(
                     elem, material, model_data.get("textures", {}),
                     properties or {},
@@ -1084,7 +1087,7 @@ class ModelLoader:
                     ))
                     continue
 
-            if needs_thickening and self.visual_textures:
+            if needs_thickening and self.visual_textures and not self.solid_textures:
                 pixel_faces = self._pixel_extrusion_faces(
                     elem, material, model_data.get("textures", {}),
                     properties or {},
@@ -1130,6 +1133,12 @@ class ModelLoader:
             for direction in directions:
                 face = _element_face(x1, y1, z1, x2, y2, z2, direction, material)
                 face_data = elem_faces.get(direction, {})
+                # New caps of a solid sprite reuse its original face texture.
+                # UV projection stays in the source plane (constant at edges).
+                uv_direction = direction
+                if (self.solid_textures and needs_thickening
+                        and not face_data and elem_faces):
+                    uv_direction, face_data = next(iter(elem_faces.items()))
                 if self.visual_textures:
                     texture = self._resolve_texture(
                         model_data.get("textures", {}),
@@ -1144,11 +1153,29 @@ class ModelLoader:
                         face.material = f"texture:{texture}"
                         face.uvs = _face_uvs(
                             face_data.get(
-                                "uv", _default_uv(direction, source_bounds)
+                                "uv", _default_uv(uv_direction, source_bounds)
                             ),
                             face_data.get("rotation", 0),
                             direction,
                         )
+                        if uv_direction != direction:
+                            source_face = _element_face(
+                                x1, y1, z1, x2, y2, z2, uv_direction, material
+                            )
+                            source_uvs = _face_uvs(
+                                face_data.get("uv", _default_uv(uv_direction, source_bounds)),
+                                face_data.get("rotation", 0), uv_direction,
+                            )
+                            origin, a, _, b = source_face.vertices
+                            edge_a = tuple(getattr(a, k) - getattr(origin, k) for k in "xyz")
+                            edge_b = tuple(getattr(b, k) - getattr(origin, k) for k in "xyz")
+                            def project_uv(vertex):
+                                delta = tuple(getattr(vertex, k) - getattr(origin, k) for k in "xyz")
+                                u = sum(d * e for d, e in zip(delta, edge_a)) / sum(e * e for e in edge_a)
+                                v = sum(d * e for d, e in zip(delta, edge_b)) / sum(e * e for e in edge_b)
+                                return tuple(source_uvs[0][i] + u * (source_uvs[1][i] - source_uvs[0][i])
+                                             + v * (source_uvs[3][i] - source_uvs[0][i]) for i in (0, 1))
+                            face.uvs = [project_uv(vertex) for vertex in face.vertices]
 
                 # Apply element-level rotation
                 if elem_rot:
@@ -1243,7 +1270,7 @@ class ModelLoader:
         cache_key = (
             block_name, tuple(sorted(properties.items())),
             position if random_model else None, self.minimum_thickness, closed,
-            self.visual_textures,
+            self.visual_textures, self.solid_textures,
         )
         cached = self._geometry_cache.get(cache_key)
         if cached is not None:

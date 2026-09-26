@@ -296,7 +296,8 @@ class VisualTextureTests(unittest.TestCase):
 
     def test_block_entity_side_uvs_keep_atlas_top_at_world_top(self):
         cases = [
-            ("minecraft:chest", {"type": "single", "facing": "north"}),
+            # Chests use their renderer's positive-Y ModelPart UV net instead
+            # of the generic inverted-Y entity net; covered in test_chest_uv.
             ("minecraft:red_shulker_box", {"facing": "up"}),
             ("minecraft:white_banner", {"rotation": "0"}),
             ("minecraft:skeleton_skull", {"rotation": "0"}),
@@ -355,8 +356,9 @@ class VisualTextureTests(unittest.TestCase):
                 stream.seek(80)
                 count = int.from_bytes(stream.read(4), "little")
             obj_faces = sum(
-                line.startswith("f ")
+                len(line.split()) - 3
                 for line in obj.read_text(encoding="utf-8").splitlines()
+                if line.startswith("f ")
             )
             self.assertEqual(count, mesh.triangle_count)
             self.assertEqual(obj_faces, mesh.triangle_count)

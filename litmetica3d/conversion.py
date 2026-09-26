@@ -224,6 +224,7 @@ class ConversionOptions:
     color: bool = False
     textures: bool = True
     seamless_glass: bool = False
+    solid_textures: bool = False
     geometry: str = "print"
     components: str = "keep"
     min_component_volume: float = 1 / 4096
@@ -272,6 +273,7 @@ class ConversionReport:
     geometry_mode: str = "print"
     seamless_glass: bool = False
     seamless_glass_blocks: int = 0
+    solid_textures: bool = False
     geometry_pipeline: str = "v0.2-print"
     component_mode: str = "keep"
     cavity_mode: str = "preserve"
@@ -286,6 +288,7 @@ class ConversionReport:
     emissive_materials: int = 0
     blender_lights: int = 0
     emission_mode: str = "none"
+    visual_optimization: dict = field(default_factory=dict)
 
     def record(
         self, result: ModelResult, state: BlockState, region: str,
@@ -413,6 +416,7 @@ def convert(
         optimize_mode=options.optimize,
         geometry_mode=options.geometry,
         seamless_glass=options.geometry == "visual" and options.seamless_glass,
+        solid_textures=options.solid_textures,
         geometry_pipeline=(
             "v0.4-visual-emission" if options.geometry == "visual"
             else "v0.2-print"
@@ -427,6 +431,7 @@ def convert(
     loader = ModelLoader(
         asset_path, options.minimum_thickness,
         visual_textures=visual_alpha_geometry,
+        solid_textures=options.solid_textures,
     )
     emission_config = load_overrides(options.emission_config)
     light_sources: list[dict] = []
@@ -837,7 +842,12 @@ def convert(
                 binary=options.stl_binary,
             )
         elif options.output_format == "obj":
-            export_compact_obj(
+            def visual_progress(fraction, message):
+                if cancelled():
+                    raise ConversionCancelled()
+                progress("visual_optimize", 0.92 + 0.07 * fraction, message)
+
+            report.visual_optimization = export_compact_obj(
                 mesh, options.output_path,
                 texture_provider=(
                     loader.texture_bytes if options.textures else None
@@ -850,7 +860,9 @@ def convert(
                     if options.textures and emission_enabled else None
                 ),
                 light_sources=light_sources,
+                progress=visual_progress,
             )
+            report.vertices = report.visual_optimization['exported_vertices']
         else:
             export_compact_stl(
                 mesh, options.output_path, binary=options.stl_binary

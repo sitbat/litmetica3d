@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from .gui_qt import ConversionWorker
 from .gui_styles import DARK_STYLE, LIGHT_STYLE
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 EXTRA_DARK_STYLE = """
 QGroupBox {
     border: 1px solid #2a3547; border-radius: 12px;
@@ -265,6 +265,10 @@ class MainWindow(QMainWindow):
             row, column = divmod(i, 2)
             grid.addWidget(QLabel(label), row, column * 2)
             grid.addWidget(widget, row, column * 2 + 1)
+        self.solid_textures_check = QCheckBox("**特殊优化：填平贴图镂空**")
+        self.solid_textures_check.setStyleSheet("QCheckBox { color: #ef4444; font-weight: bold; }")
+        self.solid_textures_check.setToolTip("所有模式可用。不开挖透明像素，保留完整方块或增厚板；贴图颜色和透明度保留。可大幅降低树叶、植物等面数，但改变几何轮廓。默认关闭。")
+        grid.addWidget(self.solid_textures_check, 4, 0, 1, 4)
         layout.addWidget(basic)
         numeric = QGroupBox("尺寸与基础选项")
         grid = QGridLayout(numeric)
@@ -452,6 +456,7 @@ class MainWindow(QMainWindow):
             self._set_value(self.cavities_combo, values["cavities"])
             self._set_value(self.emission_combo, values["emission"])
             self.seamless_glass_check.setChecked(preset == "render")
+            self.solid_textures_check.setChecked(False)
             self._sync_constraints()
         finally:
             self._applying_preset = False
@@ -474,6 +479,7 @@ class MainWindow(QMainWindow):
         checks = (
             self.center_check, self.color_check, self.textures_check,
             self.seamless_glass_check,
+            self.solid_textures_check,
         )
         for combo in combos:
             combo.currentIndexChanged.connect(self._advanced_changed)
@@ -545,7 +551,7 @@ class MainWindow(QMainWindow):
         options["emission_config"] = options["emission_config"] or "默认"
         self.preset_summary.setPlainText(
             "输出：{format}  |  水体：{water}  |  未知方块：{fallback}  |  "
-            "优化：{optimize}\n"
+            "优化：{optimize}  |  特殊优化（填平镂空）：{solid_textures}\n"
             "用途：{geometry}  |  独立壳体：{components}  |  "
             "空腔：{cavities}  |  并集失败：{boolean_fallback}\n"
             "比例：{scale:g}  |  最小厚度：{thickness:g}  |  "
@@ -645,6 +651,7 @@ class MainWindow(QMainWindow):
             "color": is_visual and self.color_check.isChecked(),
             "textures": has_textures,
             "seamless_glass": is_visual and self.seamless_glass_check.isChecked(),
+            "solid_textures": self.solid_textures_check.isChecked(),
             "emission": has_emission,
             "emission_strength": (
                 self.emission_strength_spin.value() if has_emission else 1.0

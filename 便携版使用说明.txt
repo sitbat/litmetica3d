@@ -1,10 +1,10 @@
-Litematica 3D v0.5.1 便携版
+Litematica 3D v0.5.2 便携版
 ================================
 
 使用方法：
 1. 请先完整解压 ZIP，不要直接在压缩软件中运行。
-2. 打开解压得到的“litmetica3d-v0.5.1”文件夹。
-3. 双击“litmetica3d-v0.5.1.exe”启动软件。
+2. 打开解压得到的“litmetica3d-v0.5.2”文件夹。
+3. 双击“litmetica3d-v0.5.2.exe”启动软件。
 4. “_internal”文件夹包含程序依赖和 Minecraft 26.2 模型资源，请勿删除、改名或移动。
 5. 整个文件夹可以复制到其他 Windows 电脑使用，不需要安装 Python、Minecraft 或额外 JAR。
 
