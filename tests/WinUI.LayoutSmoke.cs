@@ -92,8 +92,11 @@ public sealed partial class MainWindow
             Check(resultCards.Children.Count == 1 && emptyResults.Visibility == Visibility.Collapsed, "Completed report renders a result card");
             NavigateTo(1);
             await Capture("06-activity");
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 900));
             NavigateTo(2);
             await Capture("07-settings");
+            Root.RequestedTheme = ElementTheme.Dark;
+            await Capture("08-settings-dark");
             await File.WriteAllTextAsync(Path.Combine(folder, "checks.txt"), string.Join(Environment.NewLine, checksRun));
             Environment.Exit(0);
         }

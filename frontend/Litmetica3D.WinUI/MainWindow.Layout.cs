@@ -42,7 +42,7 @@ public sealed partial class MainWindow
         var panel = Stack(heading);
         if (description.Length > 0) panel.Children.Add(Muted(description));
         foreach (var child in children) panel.Children.Add(child);
-        return new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        return new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
             Content = new Border { Style = (Style)Root.Resources["CardStyle"], Child = panel } };
     }
     private static ScrollViewer Scroll(UIElement content) => new()
@@ -97,11 +97,25 @@ public sealed partial class MainWindow
         };
         return grid;
     }
-    private Expander Group(string title, string detail, UIElement body, bool expanded = false) => new()
+    private Expander Group(string title, string detail, UIElement body, bool expanded = false)
     {
-        Header = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center, Children = { Text(title, 15), Muted(detail, 12) } }, Content = body, IsExpanded = expanded,
-        HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
-    };
+        var heading = Text(title, 17);
+        heading.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        return new Expander
+        {
+            // The native header has a 16px left inset and no vertical padding.
+            // Add space for two lines while preserving its keyboard and theme behavior.
+            Header = new StackPanel
+            {
+                Spacing = 6, Margin = new Thickness(8, 16, 0, 16),
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { heading, Muted(detail, 13) },
+            },
+            Content = body, IsExpanded = expanded, MinHeight = 80,
+            CornerRadius = new CornerRadius(12), Padding = new Thickness(24),
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+    }
 
     private Control BuildProject(UIElement advanced)
     {
@@ -139,7 +153,10 @@ public sealed partial class MainWindow
         output.PlaceholderText = "模型保存到哪里？";
         var outputCard = Card("保存位置", "", Pair(output, Button("浏览", ChooseOutput)),
             Muted("按投影名称分文件夹保存，不覆盖已有结果。", 12));
-        var left = Stack(queue, outputCard);
+        var left = new Grid { RowSpacing = 16 };
+        left.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        left.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        left.Children.Add(queue); left.Children.Add(outputCard); Grid.SetRow(outputCard, 1);
         var modes = Stack(
             Preset("print", "\uE749", "3D 打印", "封闭实体，适合切片与打印", "STL"),
             Preset("visual", "\uE8B9", "彩色模型", "原版贴图，适合三维软件", "OBJ"),
@@ -149,8 +166,7 @@ public sealed partial class MainWindow
         summary.FontSize = 13;
         summary.LineHeight = 23;
         var right = Card("选择用途", "先选用途，细节交给预设。", modes, Divider(), presetLabel, summary);
-        right.VerticalAlignment = VerticalAlignment.Top;
-        workspace = new Grid { ColumnSpacing = 20, RowSpacing = 20 };
+        workspace = new Grid { ColumnSpacing = 20 };
         workspace.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         workspace.ColumnDefinitions.Add(new() { Width = new GridLength(340) });
         workspace.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -160,6 +176,7 @@ public sealed partial class MainWindow
         {
             var wide = e.NewSize.Width >= 820;
             workspace.ColumnDefinitions[1].Width = new GridLength(wide ? 340 : 0);
+            workspace.RowSpacing = wide ? 0 : 16;
             Grid.SetColumn(right, wide ? 1 : 0); Grid.SetRow(right, wide ? 0 : 1);
         };
         advancedOptions = Group("自定义参数", "调整几何、贴图、灯光与转换区域", advanced);
@@ -171,14 +188,17 @@ public sealed partial class MainWindow
     {
         var name = Text(title, 15); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         var badge = Muted(format, 11); badge.VerticalAlignment = VerticalAlignment.Center;
-        var copy = Stack(Pair(name, badge), Muted(subtitle, 12)); copy.Spacing = 4;
-        var content = new Grid { ColumnSpacing = 12, Margin = new Thickness(2, 5, 0, 5) };
+        // Match the native radio indicator's 32px first row.
+        var titleRow = Pair(name, badge); titleRow.MinHeight = 32;
+        name.VerticalAlignment = badge.VerticalAlignment = VerticalAlignment.Center;
+        var copy = Stack(titleRow, Muted(subtitle, 12)); copy.Spacing = 0;
+        var content = new Grid { ColumnSpacing = 12 };
         content.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        var icon = Icon(glyph, 22); icon.VerticalAlignment = VerticalAlignment.Center;
+        var icon = Icon(glyph, 22); icon.VerticalAlignment = VerticalAlignment.Top; icon.Margin = new Thickness(0, 5, 0, 0);
         content.Children.Add(icon); content.Children.Add(copy); Grid.SetColumn(copy, 1);
         var button = new RadioButton { Content = content, GroupName = "ExportPreset", HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            HorizontalAlignment = HorizontalAlignment.Stretch };
+            HorizontalAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Top, Padding = new Thickness(12, 0, 0, 0) };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
         button.Checked += (_, _) => { if (!updating) ApplyPreset(key); };
         presetButtons[key] = button;
@@ -312,9 +332,10 @@ public sealed partial class MainWindow
         };
         return Scroll(Stack(PageHeading("偏好设置", "让工作台适合你的使用习惯。"),
             Card("外观", "", Pair(new StackPanel { Spacing = 4, Children = { Text("主题"), Muted("跟随 Windows，或选择固定外观。") } }, theme)),
-            Group("转换引擎", "使用内置虚拟环境，或指定 Python 解释器",
-                Stack(python, Muted("留空自动查找仓库中的 .venv。"), Button("保存设置", (_, _) =>
-                { SaveSettings(); ShowNotice("已保存", "应用设置已更新。", InfoBarSeverity.Success); }))),
+            Card("转换引擎", "默认自动选择 Python 环境，也可指定解释器。",
+                Pair(python, Button("保存设置", (_, _) =>
+                { SaveSettings(); ShowNotice("已保存", "应用设置已更新。", InfoBarSeverity.Success); })),
+                Muted("留空即可使用内置环境，无需额外配置。", 12)),
             Card("Litematica 3D", "v0.5.1 · WinUI 3", Muted("内置 Minecraft 26.2 模型与贴图，无需安装游戏。"),
                 Muted("作者：b站@ZZHaccount", 12))));
     }
