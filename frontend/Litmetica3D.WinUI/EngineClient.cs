@@ -22,8 +22,9 @@ public sealed class EngineClient : IDisposable
         var root = FindRoot();
         if (string.IsNullOrWhiteSpace(python))
         {
+            var bundled = Path.Combine(root, "runtime", "python", "python.exe");
             var local = Path.Combine(root, ".venv", "Scripts", "python.exe");
-            python = File.Exists(local) ? local : "python.exe";
+            python = File.Exists(bundled) ? bundled : File.Exists(local) ? local : "python.exe";
         }
         var start = new ProcessStartInfo(python)
         {

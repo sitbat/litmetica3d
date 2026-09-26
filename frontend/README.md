@@ -9,6 +9,19 @@
 本地 Windows 桌面界面使用 C# / XAML 和 WinUI 3，直接调用既有 Python 转换引擎。
 无需 Qt、WebView 或本地 HTTP 服务。旧 PySide6 界面与 CLI 保留，便于对照和兼容原有工作流。
 
+## 便携 ZIP
+
+便携包解压后直接双击 Litmetica3D.WinUI.exe，无需安装 Python、.NET 或 WinUI。
+完整文件夹包含应用运行库、官方 Python 3.13.15 嵌入式环境、固定版本的转换依赖和素材。
+Python 路径留空时优先选择随包环境；文件夹可移动，转换无需联网。
+
+开发机打包（需要 .NET 10 SDK、带 pip 的 Python 和网络）：
+
+    python scripts/package_winui.py
+
+产物位于 release/winui-portable；目标文件夹必须不存在，以免覆盖旧包。
+打包脚本校验 Python 官方 ZIP 的 SHA-256，输出便携 ZIP 及其 SHA-256 文件。
+
 ## 启动
 
 开发环境：Windows 10 2004 或更高版本、x64、.NET 10 SDK、Python 3.10+。
@@ -54,7 +67,7 @@ frontend/Litmetica3D.WinUI/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/L
 可能留下 `.litmetica3d-*` 临时目录，可在确认没有转换运行时手动清理。
 
 设置文件位于 `%LOCALAPPDATA%/Litmetica3D/winui-settings.json`。
-解释器查找顺序：应用设置指定路径 → 仓库 `.venv/Scripts/python.exe` → PATH 中的 `python.exe`。
+解释器查找顺序：应用设置指定路径 → runtime/python/python.exe → 仓库 `.venv/Scripts/python.exe` → PATH 中的 `python.exe`。
 
 ## 实现
 

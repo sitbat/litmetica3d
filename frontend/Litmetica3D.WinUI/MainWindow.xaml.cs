@@ -25,7 +25,7 @@ public sealed partial class MainWindow : Window
     private readonly TextBox output = new() { PlaceholderText = "选择输出文件夹", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBox regions = new() { Header = "区域筛选", PlaceholderText = "留空转换全部；多个区域用英文逗号分隔（仅单文件）" };
     private readonly TextBox emissionConfig = new() { Header = "自定义发光规则", PlaceholderText = "可选 .json 文件" };
-    private readonly TextBox python = new() { Header = "Python 解释器", PlaceholderText = "自动使用仓库 .venv；也可填写 python.exe 的完整路径" };
+    private readonly TextBox python = new() { Header = "Python 解释器", PlaceholderText = "留空使用内置环境；也可填写 python.exe 的完整路径" };
     private readonly TextBlock presetLabel = new() { FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
     private readonly TextBlock summary = new() { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, Opacity = 0.75 };
     private readonly TextBox log = new() { AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MinHeight = 200 };
