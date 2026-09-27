@@ -1,5 +1,8 @@
 # Litematica 3D v0.6.1 preview
 
+> [!CAUTION]
+> **此版本有已确认的启动崩溃，请改用 [v0.6.2 预览版](https://github.com/zzhaccount1121/litmetica3d/releases/tag/v0.6.2)。** v0.6.1 在窗口创建时访问了界面中已删除的 `stl_binary` 选框，抛出 `KeyNotFoundException`，Windows 将其记录为 `Microsoft.UI.Xaml.dll` 的 `0xc000027b` 崩溃。重新复制或下载同一个 v0.6.1 ZIP 无法解决。
+
 本次为 0.6.0 的后续修复版本。0.6.0 合并说明和 PR #1 的原始贡献历史见 [RELEASE_NOTES_v0.6.0.md](RELEASE_NOTES_v0.6.0.md)。
 
 ## 修复与改进

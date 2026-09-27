@@ -1,5 +1,8 @@
 # Litematica 3D v0.6.0 preview
 
+> [!WARNING]
+> 这是旧版预览包。如果在你的电脑上无法启动，请改用 [v0.6.2 预览版](https://github.com/zzhaccount1121/litmetica3d/releases/tag/v0.6.2)。本次在同一台电脑上复测了 v0.6.0 GitHub 原包，窗口可以正常创建；它不含 v0.6.1 已确认的 `stl_binary` 启动崩溃。不要把两版的问题视为同一原因。
+
 ## 合并说明
 
 本版合并 GitHub PR [#1：新增原生 WinUI 3 转换工作台](https://github.com/zzhaccount1121/litmetica3d/pull/1)，将 Windows 原生桌面界面纳入主分支。PR 的提交历史和贡献者信息通过 merge commit 保留。
