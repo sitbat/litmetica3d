@@ -1,21 +1,21 @@
 # Litematica 3D
 
-## Windows 原生 WinUI 3 前端
+## 0.6.0 preview · Windows 原生 WinUI 3
 
-本地新增 C# / XAML 原生前端，复用现有 Python 转换引擎。支持批量导入、打印/视觉/渲染预设、
-高级参数、实时进度、取消、日志、报告以及深浅色主题。
+Litematica 3D 0.6.0 将 PR #1 的原生 WinUI 3 转换工作台合并进主分支。它使用 C# / XAML 界面并复用 Python 转换引擎，提供批量导入、打印/视觉/渲染/自定义预设、高级参数、进度、取消、日志、报告和主题设置。
+
+下载 [0.6.0 WinUI 便携版](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.6.0/Litematica3D-WinUI-v0.6.0-win-x64.zip)，完整解压后运行 `Litmetica3D.WinUI.exe`。便携版带有运行所需的 .NET、Python 和 Minecraft 26.2 资源，无需安装 Minecraft。
 
 ```powershell
 .\setup_winui.ps1
 .\run_winui.ps1
 ```
 
-需要 Windows x64、.NET 10 SDK 和 Python 3.10+。详细说明见 [WinUI 前端文档](frontend/README.md)。
-下文原 PySide6 版本的使用方法继续保留。
+源码运行需要 Windows x64、.NET 10 SDK 和 Python 3.10+。详细说明见 [WinUI 前端文档](frontend/README.md)。原 PySide6 使用说明保留在后文。
 
 > 将 Minecraft Litematica 投影转换为适合 **3D 打印**、**模型预览**和 **Blender 渲染**的 STL / OBJ 模型。
 
-![Version](https://img.shields.io/badge/version-0.5.3--preview-f59e0b)
+![Version](https://img.shields.io/badge/version-0.6.0--preview-f59e0b)
 ![Platform](https://img.shields.io/badge/platform-Windows-2563eb)
 ![Minecraft](https://img.shields.io/badge/Minecraft-26.2-16a34a)
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776ab)
@@ -40,14 +40,19 @@ Litematica 3D 可以读取 `.litematic` 文件中的区域、坐标、方块名�
 
 ## 快速下载与使用
 
-1. 下载 [v0.5.3 预览版便携包](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.5.3/litmetica3d-v0.5.3-L3D_output-portable.zip)；需要旧版时可下载 [v0.5.2 预览版](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.5.2/litmetica3d-v0.5.2-alpha-fixed.zip)。
+1. 下载 [v0.6.0 WinUI 预览版便携包](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.6.0/Litematica3D-WinUI-v0.6.0-win-x64.zip)。
 2. 完整解压 ZIP，不要直接在压缩软件中运行。
-3. 双击 `litmetica3d-v0.5.3.exe`。
+3. 双击 `Litmetica3D.WinUI.exe`。
 4. 选择一个 `.litematic` 文件和总输出位置；界面会自动按 `L3D_output/投影名/` 分类。
 5. 选择“打印”“视觉”“渲染”预设，或在“高级”页面自定义参数。
 6. 点击“开始转换”。
 
-便携版已包含 Python 运行环境、Qt、Manifold3D、Pillow、NumPy 和 Minecraft 26.2 模型资源。复制到另一台 Windows 电脑后可以直接运行。
+WinUI 便携版包含 Python 运行环境、Manifold3D、Pillow、NumPy、.NET/WinUI 运行文件和 Minecraft 26.2 模型资源。复制到另一台 Windows 电脑并完整解压后即可运行。
+
+## 版本说明
+
+- [0.6.0 合并版说明](RELEASE_NOTES_v0.6.0.md)：合并 PR #1，新增原生 WinUI 3 工作台和独立便携包。
+- 0.6.1 将记录合并后的界面改进、卡顿修复和报告输出行为调整。
 
 ## 目录
 

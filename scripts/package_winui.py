@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON_VERSION = "3.13.15"
 PYTHON_SHA256 = "d1f04d990aee1253d8569e8e5104e30fa9f5fa830899f14843448872d936a2cf"
 DEPENDENCIES = ["numpy==2.5.3", "manifold3d==3.5.3", "Pillow==12.3.0"]
-NAME = "Litematica3D-WinUI-v0.5.1-win-x64"
+VERSION = "0.6.0"
+NAME = f"Litematica3D-WinUI-v{VERSION}-win-x64"
 
 def run(*args, **kwargs):
     subprocess.run(args, check=True, cwd=ROOT, **kwargs)
