@@ -26,6 +26,13 @@ release/
 Thumbs.db
 desktop.ini
 
+# WinUI / .NET
+**/bin/
+**/obj/
+.vs/
+*.user
+work/
+
 # Generated model output
 *.stl
 *.obj

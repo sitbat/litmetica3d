@@ -33,7 +33,7 @@ classifiers = [
 
 [project.scripts]
 litmetica3d = "litmetica3d.cli:main"
-litmetica3d-gui = "litmetica3d.gui_app:launch_gui"
+litmetica3d-gui = "litmetica3d.desktop:launch_gui"
 
 [tool.setuptools.packages.find]
 include = ["litmetica3d*"]
