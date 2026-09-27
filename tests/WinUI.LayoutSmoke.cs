@@ -47,13 +47,16 @@ public sealed partial class MainWindow
 
             presetButtons["visual"].IsChecked = true;
             Check(Value("output_format") == "obj" && Value("geometry") == "visual", "Visual radio changes actual conversion parameters");
-            Check(visualGroup.Visibility == Visibility.Visible && printGroup.Visibility == Visibility.Collapsed, "Relevant parameter groups shown");
+            Check(visualGroup.IsEnabled && !printGroup.IsEnabled && visualGroup.Visibility == Visibility.Visible && printGroup.Visibility == Visibility.Visible,
+                "Print-only and visual controls stay visible while incompatible options are disabled");
             presetButtons["render"].IsChecked = true;
             Check(Value("blender_lights") == "exact" && checks["seamless_glass"].IsChecked == true, "Render preset includes exact lights and seamless glass");
             numbers["scale"].Value = 2;
-            Check(presetButtons.Values.All(x => x.IsChecked == false), "Editing a parameter shows custom configuration");
+            Check(presetButtons["custom"].IsChecked == true, "Editing a parameter selects the custom preset");
             Set("output_format", "stl");
             Check(Value("geometry") == "print" && !choices["geometry"].IsEnabled, "STL remains constrained to print mode");
+            Check(!visualGroup.IsEnabled && !choices["components"].IsEnabled && !choices["cavities"].IsEnabled,
+                "STL/print mode disables visual-only and conflicting print controls");
             ApplyPreset("print");
             AddFiles([Path.Combine(folder, "中文 测试.litematic"), Path.Combine(folder, "第二个投影.litematic")]);
             output.Text = folder;

@@ -58,14 +58,15 @@ class BridgeTests(unittest.TestCase):
         triangles = struct.unpack("<I", model.read_bytes()[80:84])[0]
         self.assertEqual(12, triangles)
         self.assertTrue(report["solid"]["printable"])
-        self.assertTrue(model.with_suffix(".report.json").exists())
+        self.assertFalse(model.with_suffix(".report.json").exists())
+        self.assertEqual(self.output / "L3D_output" / self.source.stem / model.name, model)
         self.assertFalse(list(self.output.glob(".litmetica3d-*")))
         self.assertEqual("complete", self.events[-1]["type"])
 
     def test_visual_obj_publishes_referenced_materials_and_textures(self):
         self.request["options"] = {"output_format": "obj", "geometry": "visual", "blender_lights": "material"}
         run(self.request, lambda: False, self.send)
-        folder = self.output / self.source.stem
+        folder = self.output / "L3D_output" / self.source.stem
         model = folder / f"{self.source.stem}.obj"
         material = next(line[7:] for line in model.read_text(encoding="utf-8").splitlines() if line.startswith("mtllib "))
         mtl = folder / material
@@ -75,15 +76,16 @@ class BridgeTests(unittest.TestCase):
         for texture in maps:
             self.assertTrue((folder / texture).exists(), texture)
 
-    def test_collision_rejected_before_conversion(self):
-        target = self.output / self.source.stem
+    def test_existing_output_gets_numbered_folder_without_overwrite(self):
+        target = self.output / "L3D_output" / self.source.stem
         target.mkdir(parents=True)
         sentinel = target / "keep.txt"
         sentinel.write_text("original")
-        with self.assertRaises(FileExistsError):
-            run(self.request, lambda: False, self.send)
+        run(self.request, lambda: False, self.send)
         self.assertEqual("original", sentinel.read_text())
-        self.assertEqual([], self.events)
+        report = next(e["report"] for e in self.events if e["type"] == "report")
+        self.assertEqual(self.output / "L3D_output" / f"{self.source.stem} (2)" / f"{self.source.stem}.stl",
+                         Path(report["output_path"]))
 
     def test_cancel_removes_unpublished_files(self):
         def interrupted(options, progress, cancelled):
@@ -91,7 +93,7 @@ class BridgeTests(unittest.TestCase):
             raise ConversionCancelled()
         with patch("litmetica3d.conversion.convert", interrupted), self.assertRaises(ConversionCancelled):
             run(self.request, lambda: False, self.send)
-        self.assertEqual([], list(self.output.iterdir()))
+        self.assertFalse((self.output / "L3D_output" / self.source.stem).exists())
 
     def test_duplicate_names_rejected_for_entire_batch(self):
         folder = self.root / "second"
@@ -132,7 +134,7 @@ class BridgeTests(unittest.TestCase):
             messages = [json.loads(line) for line in process.stdout]
             self.assertEqual(0, process.wait(timeout=10), process.stderr.read())
             self.assertEqual("cancelled", messages[-1]["type"])
-            self.assertFalse((self.output / self.source.stem).exists())
+            self.assertFalse((self.output / "L3D_output" / self.source.stem).exists())
 
 
 if __name__ == "__main__":

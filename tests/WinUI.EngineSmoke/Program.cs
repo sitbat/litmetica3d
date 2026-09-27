@@ -16,15 +16,22 @@ try
     if (!events.Any(x => x.GetProperty("type").GetString() == "progress")) throw new Exception("Missing progress");
     if (events[^1].GetProperty("type").GetString() != "complete") throw new Exception("Missing completion");
     var report = events.First(x => x.GetProperty("type").GetString() == "report").GetProperty("report");
-    if (!File.Exists(report.GetProperty("output_path").GetString())) throw new Exception("Missing model");
+    var firstModel = report.GetProperty("output_path").GetString()!;
+    if (!File.Exists(firstModel)) throw new Exception("Missing model");
+    if (!firstModel.Contains(Path.Combine("L3D_output", Path.GetFileNameWithoutExtension(source)), StringComparison.OrdinalIgnoreCase))
+        throw new Exception("Output folder does not follow the L3D_output layout.");
+    if (File.Exists(Path.ChangeExtension(firstModel, ".report.json"))) throw new Exception("Unexpected report sidecar.");
     if (!report.GetProperty("solid").GetProperty("printable").GetBoolean()) throw new Exception("Invalid solid");
     Console.WriteLine("PASS: C# client -> Python -> water-tight STL, progress, report, clean process exit.");
 
     using (var client = new EngineClient())
     {
-        try { await client.RunAsync("", request, _ => { }, CancellationToken.None); throw new Exception("Expected collision error"); }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("输出已存在"))
-        { Console.WriteLine("PASS: backend errors propagate to the C# caller."); }
+        var collisionEvents = new List<JsonElement>();
+        await client.RunAsync("", request, collisionEvents.Add, CancellationToken.None);
+        var secondModel = collisionEvents.First(x => x.GetProperty("type").GetString() == "report")
+            .GetProperty("report").GetProperty("output_path").GetString()!;
+        if (firstModel == secondModel || !File.Exists(secondModel)) throw new Exception("Existing result was overwritten.");
+        Console.WriteLine("PASS: existing project output gets a new numbered directory without overwrite.");
     }
     using (var client = new EngineClient())
     using (var cancelled = new CancellationTokenSource())

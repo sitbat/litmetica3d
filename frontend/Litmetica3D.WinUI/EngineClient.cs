@@ -38,33 +38,61 @@ public sealed class EngineClient : IDisposable
         start.ArgumentList.Add("litmetica3d.winui_bridge");
         start.Environment["PYTHONUTF8"] = "1";
         process = new Process { StartInfo = start };
-        process.Start();
         var active = process;
+        // Keep process startup and pipe handling off the XAML dispatcher. When
+        // ReadLineAsync completes synchronously on a buffered stream, capturing
+        // the UI context can otherwise starve input and elapsed-time updates.
+        if (!await Task.Run(active.Start).ConfigureAwait(false))
+            throw new InvalidOperationException("无法启动转换引擎。");
         var stderr = new StringBuilder();
         var errors = Task.Run(async () =>
         {
-            while (await active.StandardError.ReadLineAsync() is { } line)
+            while (await active.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line)
             {
                 if (stderr.Length > 16000) stderr.Remove(0, 8000);
                 stderr.AppendLine(line);
             }
         });
-        await active.StandardInput.WriteLineAsync(JsonSerializer.Serialize(request));
-        await active.StandardInput.FlushAsync();
+        await active.StandardInput.WriteLineAsync(JsonSerializer.Serialize(request)).ConfigureAwait(false);
+        await active.StandardInput.FlushAsync().ConfigureAwait(false);
         using var registration = token.Register(() => _ = CancelAsync(active));
         var terminal = false;
         string? failure = null;
-        while (await active.StandardOutput.ReadLineAsync() is { } line)
+        var progressClock = Stopwatch.StartNew();
+        var lastProgressAt = -1000L;
+        string? lastStage = null;
+        JsonElement? pendingProgress = null;
+        while (await active.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line)
         {
             using var json = JsonDocument.Parse(line);
             var item = json.RootElement.Clone();
             var kind = item.GetProperty("type").GetString();
+            if (kind == "progress")
+            {
+                pendingProgress = item;
+                var stage = item.TryGetProperty("stage", out var value) ? value.GetString() : null;
+                var now = progressClock.ElapsedMilliseconds;
+                if (stage != lastStage || now - lastProgressAt >= 150)
+                {
+                    receive(item);
+                    pendingProgress = null;
+                    lastProgressAt = now;
+                    lastStage = stage;
+                }
+                continue;
+            }
+            if (pendingProgress is { } latest)
+            {
+                receive(latest);
+                pendingProgress = null;
+            }
             if (kind is "complete" or "cancelled" or "error") terminal = true;
             if (kind == "error") failure = item.GetProperty("text").GetString();
             receive(item);
         }
-        await active.WaitForExitAsync();
-        await errors;
+        if (pendingProgress is { } finalProgress) receive(finalProgress);
+        await active.WaitForExitAsync().ConfigureAwait(false);
+        await errors.ConfigureAwait(false);
         if (failure != null) throw new InvalidOperationException(failure);
         if (!terminal && token.IsCancellationRequested) throw new OperationCanceledException(token);
         if (!terminal || active.ExitCode != 0)
@@ -76,10 +104,10 @@ public sealed class EngineClient : IDisposable
         try
         {
             if (active.HasExited) return;
-            await active.StandardInput.WriteLineAsync("{\"command\":\"cancel\"}");
-            await active.StandardInput.FlushAsync();
+            await active.StandardInput.WriteLineAsync("{\"command\":\"cancel\"}").ConfigureAwait(false);
+            await active.StandardInput.FlushAsync().ConfigureAwait(false);
             // A native boolean operation may not reach a cancellation checkpoint.
-            await Task.WhenAny(active.WaitForExitAsync(), Task.Delay(5000));
+            await Task.WhenAny(active.WaitForExitAsync(), Task.Delay(5000)).ConfigureAwait(false);
             if (!active.HasExited) active.Kill(entireProcessTree: true);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception) { }

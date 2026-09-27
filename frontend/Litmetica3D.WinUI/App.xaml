@@ -4,8 +4,26 @@
  <Application.Resources>
   <ResourceDictionary>
    <ResourceDictionary.MergedDictionaries>
-    <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
+   <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
    </ResourceDictionary.MergedDictionaries>
+   <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Light">
+     <SolidColorBrush x:Key="WorkspaceBackgroundBrush" Color="#F3F7FB"/>
+     <SolidColorBrush x:Key="WorkspaceCardBrush" Color="#FFFFFF"/>
+     <SolidColorBrush x:Key="WorkspaceBorderBrush" Color="#DCE6F0"/>
+     <SolidColorBrush x:Key="PresetIdleBrush" Color="#F9FBFE"/>
+     <SolidColorBrush x:Key="PresetSelectedBrush" Color="#E5F4FF"/>
+     <SolidColorBrush x:Key="PresetSelectedBorderBrush" Color="#2589D0"/>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+     <SolidColorBrush x:Key="WorkspaceBackgroundBrush" Color="#141B25"/>
+     <SolidColorBrush x:Key="WorkspaceCardBrush" Color="#202B39"/>
+     <SolidColorBrush x:Key="WorkspaceBorderBrush" Color="#34465B"/>
+     <SolidColorBrush x:Key="PresetIdleBrush" Color="#263447"/>
+     <SolidColorBrush x:Key="PresetSelectedBrush" Color="#173D56"/>
+     <SolidColorBrush x:Key="PresetSelectedBorderBrush" Color="#59BDEB"/>
+    </ResourceDictionary>
+   </ResourceDictionary.ThemeDictionaries>
   </ResourceDictionary>
  </Application.Resources>
 </Application>

@@ -8,6 +8,7 @@ namespace Litmetica3D.WinUI;
 public sealed partial class MainWindow
 {
     private readonly Dictionary<string, RadioButton> presetButtons = [];
+    private readonly Dictionary<string, Border> presetTiles = [];
     private readonly TextBlock fileCount = new() { FontSize = 12, Opacity = 0.65 };
     private readonly TextBlock resultCount = new() { FontSize = 13, Opacity = 0.7 };
     private readonly StackPanel resultCards = new() { Spacing = 12 };
@@ -152,7 +153,7 @@ public sealed partial class MainWindow
         };
         output.PlaceholderText = "模型保存到哪里？";
         var outputCard = Card("保存位置", "", Pair(output, Button("浏览", ChooseOutput)),
-            Muted("按投影名称分文件夹保存，不覆盖已有结果。", 12));
+            Muted("自动建立 L3D_output，并按投影名称分文件夹保存。", 12));
         var left = new Grid { RowSpacing = 16 };
         left.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         left.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -160,12 +161,13 @@ public sealed partial class MainWindow
         var modes = Stack(
             Preset("print", "\uE749", "3D 打印", "封闭实体，适合切片与打印", "STL"),
             Preset("visual", "\uE8B9", "彩色模型", "原版贴图，适合三维软件", "OBJ"),
-            Preset("render", "\uE722", "Blender 渲染", "透明玻璃与可编辑灯光", "OBJ"));
+            Preset("render", "\uE722", "Blender 渲染", "透明玻璃与可编辑灯光", "OBJ"),
+            Preset("custom", "\uE70F", "自定义", "显示当前高级配置", "自定义"));
         modes.Spacing = 18;
         presetLabel.FontSize = 13;
         summary.FontSize = 13;
         summary.LineHeight = 23;
-        var right = Card("选择用途", "先选用途，细节交给预设。", modes, Divider(), presetLabel, summary);
+        var right = Card("预设集", "选择适合用途的配置，也可在下方自定义。", modes, Divider(), presetLabel, summary);
         workspace = new Grid { ColumnSpacing = 20 };
         workspace.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         workspace.ColumnDefinitions.Add(new() { Width = new GridLength(340) });
@@ -184,7 +186,7 @@ public sealed partial class MainWindow
         UpdateFileState();
         return Scroll(content);
     }
-    private RadioButton Preset(string key, string glyph, string title, string subtitle, string format)
+    private Border Preset(string key, string glyph, string title, string subtitle, string format)
     {
         var name = Text(title, 15); name.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         var badge = Muted(format, 11); badge.VerticalAlignment = VerticalAlignment.Center;
@@ -202,7 +204,10 @@ public sealed partial class MainWindow
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
         button.Checked += (_, _) => { if (!updating) ApplyPreset(key); };
         presetButtons[key] = button;
-        return button;
+        var tile = new Border { Style = (Style)Root.Resources["PresetTileStyle"], Child = button };
+        tile.Tapped += (_, _) => button.IsChecked = true;
+        presetTiles[key] = tile;
+        return tile;
     }
     private void UpdateFileActions()
     {
@@ -226,6 +231,8 @@ public sealed partial class MainWindow
     {
         updating = true;
         foreach (var (key, button) in presetButtons) button.IsChecked = key == preset;
+        foreach (var (key, tile) in presetTiles)
+            tile.Style = (Style)Root.Resources[key == preset ? "PresetTileSelectedStyle" : "PresetTileStyle"];
         updating = false;
         presetLabel.Text = preset switch { "print" => "打印预设", "visual" => "彩色模型预设", "render" => "渲染预设", _ => "自定义配置" };
     }
@@ -254,28 +261,33 @@ public sealed partial class MainWindow
     private UIElement BuildAdvanced()
     {
         updating = true;
-        var basic = Group("模型与几何", "格式、比例、水体及网格优化", Stack(
+        var specialOptimization = Check("solid_textures", "**特殊优化：填平贴图镂空**");
+        specialOptimization.Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed);
+        ToolTipService.SetToolTip(specialOptimization, "仅视觉模式有效。填平叶片、藤蔓等贴图的镂空几何；仍保留贴图透明度。打印模式本来就不裁切透明像素。");
+        printOnlyNote = Muted("独立壳体、封闭空腔与并集失败仅在打印模式生效；视觉模式不执行实体布尔处理。", 12);
+        printOnlyNote.Visibility = Visibility.Collapsed;
+        var basic = Group("模型与输出", "格式、水体与实体处理", Stack(
             Fields(
-                Choice("output_format", "文件格式", ("STL", "stl"), ("OBJ", "obj")),
-                Choice("geometry", "几何用途", ("打印 · 封闭实体", "print"), ("视觉 · 原版贴图", "visual")),
-                Number("scale", "模型比例", 1, 0.0001, 10000),
+                Choice("output_format", "格式", ("STL", "stl"), ("OBJ", "obj")),
                 Choice("water", "水体处理", ("完整方块", "cube"), ("忽略水体", "drop"), ("水位高度", "level")),
                 Choice("fallback", "未知方块", ("回落成立方体", "cube"), ("忽略", "ignore")),
-                Choice("optimize", "面数优化", ("安全优化", "safe"), ("原始网格", "raw"), ("实验性优化", "experimental"))),
-            Fields(Check("center", "模型居中"), Check("stl_binary", "使用二进制 STL"))), true);
-        printGroup = Group("打印实体", "处理薄片、独立壳体与封闭空腔", Fields(
+                Choice("geometry", "输出用途", ("打印 · 封闭实体", "print"), ("视觉 · 原版贴图", "visual")),
+                Choice("components", "独立壳体", ("全部保留", "keep"), ("删除较小壳体", "remove-small"), ("仅保留主要壳体", "main")),
+                Choice("cavities", "封闭空腔", ("保留空腔", "preserve"), ("填充空腔", "fill")),
+                Choice("boolean_fallback", "并集失败", ("局部体素 32 回退", "voxel32"), ("失败并停止", "fail"))),
+            specialOptimization, printOnlyNote), true);
+        printGroup = Group("尺寸与基础选项", "比例、实体厚度与模型居中", Fields(
+            Number("scale", "比例", 1, 0.0001, 10000),
             Number("minimum_thickness", "最小实体厚度（格）", 1.0 / 16, 1.0 / 256, 1),
-            Choice("components", "独立壳体", ("全部保留", "keep"), ("删除较小壳体", "remove-small"), ("仅保留主要壳体", "main")),
             Number("min_component_volume", "最小壳体体积", 1.0 / 4096, 0, 1e9),
-            Choice("cavities", "封闭空腔", ("保留空腔", "preserve"), ("填充空腔", "fill")),
-            Choice("boolean_fallback", "并集失败策略", ("局部体素 32 回退", "voxel32"), ("失败并停止", "fail"))));
-        visualGroup = Group("贴图与灯光", "视觉模型适合渲染，不保证可直接打印", Stack(
-            Fields(Check("color", "OBJ 基础颜色"), Check("seamless_glass", "半透明无缝玻璃"),
-                Choice("blender_lights", "Blender 发光", ("不发光", "none"), ("仅材质", "material"), ("精确灯光", "exact"), ("聚类灯光", "clustered")),
+            Check("center", "模型居中")));
+        emissionBrowse = Button("选择 JSON", ChooseEmission);
+        visualGroup = Group("视觉与发光", "视觉模型带原版贴图，打印模式不带贴图与发光", Stack(
+            Check("textures", "是否带有贴图（由输出用途自动决定）"),
+            Fields(Choice("blender_lights", "发光模式", ("不发光", "none"), ("仅材质", "material"), ("精确灯光", "exact"), ("聚类灯光", "clustered")),
                 Number("emission_strength", "发光强度倍率", 1, 0, 1000)),
-            Pair(emissionConfig, Button("选择 JSON", ChooseEmission))));
-        var regionGroup = Group("转换区域", "默认全部区域；筛选仅用于单个投影",
-            Stack(regions, Button("读取投影区域", ReadRegions)));
+            Pair(emissionConfig, emissionBrowse), Check("seamless_glass", "半透明无缝玻璃")));
+        var regionGroup = Group("区域", "留空为全部区域；筛选仅用于单个投影", regions);
         regions.TextChanged += (_, _) => Changed(); emissionConfig.TextChanged += (_, _) => Changed();
         updating = false;
         return Stack(basic, printGroup, visualGroup, regionGroup);
@@ -290,18 +302,27 @@ public sealed partial class MainWindow
         log.FontFamily = new FontFamily("Cascadia Mono, Consolas");
         log.FontSize = 12; log.MinHeight = 320;
         reportText.FontFamily = new FontFamily("Cascadia Mono, Consolas"); reportText.FontSize = 12; reportText.MinHeight = 320;
-        var tabs = new Pivot { Margin = new Thickness(-12, 0, 0, 0), HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        tabs.Items.Add(new PivotItem { Header = Text("转换结果", 15), Content = Scroll(Stack(resultCount, emptyResults, resultCards)) });
-        tabs.Items.Add(new PivotItem { Header = Text("实时日志", 15), Content = Scroll(Stack(Button("清空日志", (_, _) => log.Text = ""), log)) });
-        tabs.Items.Add(new PivotItem { Header = Text("JSON 报告", 15), Content = Scroll(reportText) });
+        activityTabs = new Pivot { Margin = new Thickness(-12, 0, 0, 0), HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        activityTabs.Items.Add(new PivotItem { Header = Text("转换结果", 15), Content = Scroll(Stack(resultCount, emptyResults, resultCards)) });
+        activityTabs.Items.Add(new PivotItem { Header = Text("实时日志", 15), Content = Scroll(Stack(Button("清空日志", (_, _) => ClearLog()), log)) });
+        reportPrevious = Button("上一页", (_, _) => { reportPage--; ShowReportPage(); });
+        reportNext = Button("下一页", (_, _) => { reportPage++; ShowReportPage(); });
+        activityTabs.Items.Add(new PivotItem { Header = Text("转换报告", 15),
+            Content = Scroll(Stack(Row(reportPrevious, reportNext, reportPageLabel), reportText)) });
+        activityTabs.SelectionChanged += (_, _) =>
+        {
+            if (activityTabs.SelectedIndex == 2 && formattedReport == null)
+                _ = PrepareReportAsync(reportRevision);
+        };
+        UpdateReportPageControls();
         var layout = new Grid { RowSpacing = 12 };
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        layout.Children.Add(PageHeading("转换活动", "查看模型输出与处理详情。"));
+        layout.Children.Add(PageHeading("日志与报告", "查看转换进度、输出结果和完整报告。"));
         var toolbar = Row(Button("打开输出文件夹", OpenOutput), Button("导出报告", SaveReport));
         layout.Children.Add(toolbar); Grid.SetRow(toolbar, 1);
-        layout.Children.Add(tabs); Grid.SetRow(tabs, 2);
+        layout.Children.Add(activityTabs); Grid.SetRow(activityTabs, 2);
         return new ContentControl { Content = layout, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     }
     private void UpdateResults()
@@ -336,7 +357,7 @@ public sealed partial class MainWindow
                 Pair(python, Button("保存设置", (_, _) =>
                 { SaveSettings(); ShowNotice("已保存", "应用设置已更新。", InfoBarSeverity.Success); })),
                 Muted("留空即可使用内置环境，无需额外配置。", 12)),
-            Card("Litematica 3D", "v0.6.0 · WinUI 3", Muted("内置 Minecraft 26.2 模型与贴图，无需安装游戏。"),
+            Card("Litematica 3D", "v0.6.1 · WinUI 3", Muted("内置 Minecraft 26.2 模型与贴图，无需安装游戏。"),
                 Muted("作者：b站@ZZHaccount", 12))));
     }
 }

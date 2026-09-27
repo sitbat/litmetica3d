@@ -6,7 +6,7 @@ public sealed class UserSettings
 {
     public string OutputDirectory { get; set; } = "";
     public string Python { get; set; } = "";
-    public string Theme { get; set; } = "Default";
+    public string Theme { get; set; } = "Dark";
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Litmetica3D", "winui-settings.json");
     public static UserSettings Load()

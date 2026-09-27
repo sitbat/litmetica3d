@@ -22,6 +22,7 @@ def emit(kind, **data):
 
 def run(request, cancelled, send=emit):
     from .conversion import ConversionCancelled, ConversionOptions, convert
+    from .output_layout import next_model_path, normalize_output_root
 
     files = [Path(p).resolve() for p in request.get("files", [])]
     if not files:
@@ -29,7 +30,7 @@ def run(request, cancelled, send=emit):
     output_text = request.get("output_dir", "").strip()
     if not output_text:
         raise ValueError("请选择输出文件夹。")
-    output = Path(output_text).resolve()
+    output = normalize_output_root(Path(output_text).resolve())
     options = dict(request.get("options", {}))
     for reserved in ("input_path", "output_path", "save_report"):
         if reserved in options:
@@ -76,15 +77,14 @@ def run(request, cancelled, send=emit):
         if key in names:
             raise ValueError(f"批量任务中存在同名投影：{source.stem}")
         names.add(key)
-        if (output / source.stem).exists():
-            raise FileExistsError(f"输出已存在：{output / source.stem}。请选择其他输出文件夹。")
     output.mkdir(parents=True, exist_ok=True)
+    destinations = [next_model_path(output, source, fmt) for source in files]
     for index, source in enumerate(files):
         if cancelled():
             raise ConversionCancelled()
-        destination = output / source.stem
+        destination = destinations[index].parent
         send("log", text=f"[{index + 1}/{len(files)}] {source.name}")
-        # Publish the entire set (model, materials, textures, report) only on success.
+        # Publish the model set (model, materials, textures) only on success.
         with tempfile.TemporaryDirectory(prefix=".litmetica3d-", dir=output) as scratch:
             stage = Path(scratch) / source.stem
             stage.mkdir()
@@ -98,9 +98,7 @@ def run(request, cancelled, send=emit):
             if cancelled():
                 raise ConversionCancelled()
             data = asdict(report)
-            data["output_path"] = str(destination / f"{source.stem}.{fmt}")
-            (stage / f"{source.stem}.report.json").write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            data["output_path"] = str(destinations[index])
             stage.rename(destination)
         send("report", report=data)
     send("complete", text=f"已完成 {len(files)} 个投影的转换。")

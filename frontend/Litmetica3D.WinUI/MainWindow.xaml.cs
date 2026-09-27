@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Numerics;
+using System.Text;
 using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -32,9 +33,30 @@ public sealed partial class MainWindow : Window
     private readonly TextBox reportText = new() { AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MinHeight = 200 };
     private readonly ListView fileList = new() { SelectionMode = ListViewSelectionMode.Multiple, MinHeight = 110, MaxHeight = 210 };
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer logTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly Stopwatch watch = new();
+    private readonly StringBuilder logBuffer = new();
+    private static readonly JsonSerializerOptions ReportJsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+    private const int ReportPageLength = 24000;
+    private readonly List<(int Start, int Length)> reportPages = [];
+    private readonly TextBlock reportPageLabel = new() { FontSize = 12, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center };
+    private Button reportPrevious = null!;
+    private Button reportNext = null!;
+    private Pivot activityTabs = null!;
     private Control visualGroup = null!;
     private Control printGroup = null!;
+    private Button emissionBrowse = null!;
+    private TextBlock printOnlyNote = null!;
+    private string? formattedReport;
+    private int reportRevision;
+    private int reportPreparingRevision = -1;
+    private int reportPage;
+    private bool logDirty;
+    private DateTime lastEngineEventUtc;
     private CancellationTokenSource? cancellation;
     private EngineClient? engine;
     private bool updating;
@@ -68,8 +90,9 @@ public sealed partial class MainWindow : Window
         NavigateTo(0);
         ApplyPreset("print");
         if (initialFiles != null) AddFiles(initialFiles.Where(File.Exists));
-        timer.Tick += (_, _) => Elapsed.Text = $"总耗时 {watch.Elapsed:hh\\:mm\\:ss}";
-        Closed += (_, _) => { cancellation?.Cancel(); engine?.Dispose(); timer.Stop(); };
+        timer.Tick += (_, _) => RefreshElapsed();
+        logTimer.Tick += (_, _) => FlushLog();
+        Closed += (_, _) => { cancellation?.Cancel(); engine?.Dispose(); timer.Stop(); logTimer.Stop(); };
         AppWindow.Closing += (_, args) =>
         {
             if (!busy) return;
@@ -123,16 +146,17 @@ public sealed partial class MainWindow : Window
     private void ApplyPreset(string preset)
     {
         if (busy) return;
+        if (preset == "custom") { SelectPreset("custom"); return; }
         updating = true;
         var print = preset == "print";
         Set("output_format", print ? "stl" : "obj"); Set("geometry", print ? "print" : "visual");
-        Set("water", preset == "visual" ? "level" : "drop"); Set("fallback", "ignore"); Set("optimize", "safe");
+        Set("water", preset == "visual" ? "level" : "drop"); Set("fallback", "ignore");
         Set("components", print ? "main" : "keep"); Set("cavities", print ? "fill" : "preserve");
         Set("boolean_fallback", "voxel32"); Set("blender_lights", preset == "visual" ? "material" : "exact");
         numbers["scale"].Value = 1; numbers["minimum_thickness"].Value = 1.0 / 16;
         numbers["min_component_volume"].Value = 1.0 / 4096; numbers["emission_strength"].Value = 1;
         foreach (var check in checks.Values) check.IsChecked = false;
-        checks["stl_binary"].IsChecked = true; checks["seamless_glass"].IsChecked = preset == "render";
+        checks["seamless_glass"].IsChecked = preset == "render";
         regions.Text = ""; emissionConfig.Text = "";
         updating = false;
         Sync();
@@ -141,7 +165,7 @@ public sealed partial class MainWindow : Window
     private void Changed()
     {
         if (updating) return;
-        Sync(); SelectPreset(null);
+        Sync(); SelectPreset("custom");
     }
     private void Sync()
     {
@@ -150,16 +174,22 @@ public sealed partial class MainWindow : Window
         if (stl) Set("geometry", "print");
         choices["geometry"].IsEnabled = !stl;
         checks["stl_binary"].IsEnabled = stl;
-        var visual = Value("geometry") == "visual";
-        visualGroup.IsEnabled = visual; printGroup.IsEnabled = !visual;
-        visualGroup.Visibility = visual ? Visibility.Visible : Visibility.Collapsed;
-        printGroup.Visibility = visual ? Visibility.Collapsed : Visibility.Visible;
-        numbers["min_component_volume"].IsEnabled = Value("components") == "remove-small";
+        var visual = !stl && Value("geometry") == "visual";
+        visualGroup.IsEnabled = visual;
+        numbers["minimum_thickness"].IsEnabled = !visual;
+        foreach (var key in new[] { "components", "cavities", "boolean_fallback" })
+            choices[key].IsEnabled = !visual;
+        printOnlyNote.Visibility = visual ? Visibility.Visible : Visibility.Collapsed;
+        checks["textures"].IsChecked = visual;
+        checks["textures"].IsEnabled = false;
+        checks["solid_textures"].IsEnabled = visual;
+        numbers["min_component_volume"].IsEnabled = !visual && Value("components") == "remove-small";
         var emission = visual && Value("blender_lights") != "none";
         numbers["emission_strength"].IsEnabled = emission; emissionConfig.IsEnabled = emission;
+        emissionBrowse.IsEnabled = emission;
         string Label(string key) => ((ComboBoxItem)choices[key].SelectedItem).Content.ToString() ?? "";
         summary.Text = $"{Value("output_format").ToUpperInvariant()} · {(visual ? "原版贴图" : "封闭实体")}\n" +
-            $"{Label("optimize")} · 比例 × {numbers["scale"].Value:g}\n" +
+            $"自动优化 · 比例 × {numbers["scale"].Value:g}\n" +
             (visual ? $"灯光：{Label("blender_lights")}" : $"壳体：{Label("components")}");
         updating = false;
     }
@@ -185,7 +215,7 @@ public sealed partial class MainWindow : Window
             var absolute = Path.GetFullPath(path);
             if (!files.Contains(absolute, StringComparer.OrdinalIgnoreCase)) files.Add(absolute);
         }
-        if (files.Count > 0 && string.IsNullOrWhiteSpace(output.Text)) output.Text = Path.Combine(Path.GetDirectoryName(files[0])!, "3D-output");
+        if (files.Count > 0 && string.IsNullOrWhiteSpace(output.Text)) output.Text = Path.GetDirectoryName(files[0])!;
         UpdateFileState();
     }
     private async void ChooseOutput(object sender, RoutedEventArgs args)
@@ -197,6 +227,13 @@ public sealed partial class MainWindow : Window
             if (folder != null) { output.Text = folder.Path; SaveSettings(); }
         }
         catch (Exception ex) { ShowError(ex); }
+    }
+    private string OutputRoot()
+    {
+        var selected = Path.GetFullPath(output.Text.Trim());
+        return Path.GetFileName(selected.TrimEnd(Path.DirectorySeparatorChar))
+            .Equals("L3D_output", StringComparison.OrdinalIgnoreCase)
+            ? selected : Path.Combine(selected, "L3D_output");
     }
     private async void ChooseEmission(object sender, RoutedEventArgs args)
     {
@@ -211,7 +248,12 @@ public sealed partial class MainWindow : Window
         {
             var root = EngineClient.FindRoot();
             var executable = python.Text.Trim();
-            if (executable.Length == 0) executable = Path.Combine(root, ".venv", "Scripts", "python.exe");
+            if (executable.Length == 0)
+            {
+                var bundled = Path.Combine(root, "runtime", "python", "python.exe");
+                var local = Path.Combine(root, ".venv", "Scripts", "python.exe");
+                executable = File.Exists(bundled) ? bundled : File.Exists(local) ? local : "python.exe";
+            }
             var start = new ProcessStartInfo(executable) { WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8 };
             start.Environment["PYTHONUTF8"] = "1";
@@ -239,8 +281,18 @@ public sealed partial class MainWindow : Window
             options[key] = number.Value;
         }
         foreach (var (key, check) in checks) options[key] = check.IsChecked == true;
+        options["stl_binary"] = true;
         var visual = Value("geometry") == "visual";
         options["textures"] = visual; options["emission"] = visual && Value("blender_lights") != "none";
+        options["optimize"] = "safe";
+        options["color"] = false;
+        options["solid_textures"] = visual && checks["solid_textures"].IsChecked == true;
+        if (visual)
+        {
+            options["components"] = "keep";
+            options["cavities"] = "preserve";
+            options["boolean_fallback"] = "voxel32";
+        }
         options["emission_config"] = (bool)options["emission"] ? emissionConfig.Text.Trim() : "";
         options["regions"] = regions.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return options;
@@ -252,9 +304,13 @@ public sealed partial class MainWindow : Window
         {
             if (files.Count == 0) throw new ArgumentException("请先添加 .litematic 投影文件。");
             if (string.IsNullOrWhiteSpace(output.Text)) throw new ArgumentException("请选择输出文件夹。");
-            var request = new { files = files.ToArray(), output_dir = Path.GetFullPath(output.Text.Trim()), options = Snapshot() };
-            SaveSettings(); Notice.IsOpen = false; reports.Clear(); reportText.Text = ""; UpdateResults(); Progress.Value = 0; ProgressLabel.Text = "";
-            SetBusy(true); watch.Restart(); timer.Start(); Status.Text = "正在启动转换引擎…"; AppendLog("开始转换");
+            var request = new { files = files.ToArray(), output_dir = output.Text.Trim(), options = Snapshot() };
+            SaveSettings(); Notice.IsOpen = false; reports.Clear(); InvalidateReport(); UpdateResults();
+            Progress.Value = 0; Progress.IsIndeterminate = false; ProgressLabel.Text = "0%";
+            logBuffer.Clear(); log.Text = "";
+            SetBusy(true); watch.Restart(); lastEngineEventUtc = DateTime.UtcNow;
+            Elapsed.Text = "已用时间 00:00:00"; Heartbeat.Text = "引擎启动中";
+            timer.Start(); Status.Text = "正在启动转换引擎…"; AppendLog("开始转换");
             cancellation = new(); engine = new();
             await engine.RunAsync(python.Text.Trim(), request, HandleEvent, cancellation.Token);
         }
@@ -267,27 +323,31 @@ public sealed partial class MainWindow : Window
         finally
         {
             timer.Stop(); watch.Stop(); Elapsed.Text = $"总耗时 {watch.Elapsed:hh\\:mm\\:ss}";
+            Heartbeat.Text = ""; Progress.IsIndeterminate = false; FlushLog();
             engine?.Dispose(); engine = null; cancellation?.Dispose(); cancellation = null; SetBusy(false);
         }
     }
     private void HandleEvent(JsonElement item)
     {
-        // Async pipe reads resume on the UI context; background safety is explicit.
+        // EngineClient reads pipes on a worker; only coalesced UI events enter the dispatcher.
         if (!DispatcherQueue.HasThreadAccess) { DispatcherQueue.TryEnqueue(() => HandleEvent(item)); return; }
+        lastEngineEventUtc = DateTime.UtcNow;
+        Heartbeat.Text = "引擎运行中";
         var kind = item.GetProperty("type").GetString();
         var text = item.TryGetProperty("text", out var message) ? message.GetString() ?? "" : "";
         switch (kind)
         {
             case "progress":
+                Progress.IsIndeterminate = false;
                 Progress.Value = Math.Clamp(item.GetProperty("value").GetDouble() * 100, 0, 100);
                 Status.Text = text; ProgressLabel.Text = $"{Progress.Value:0}%"; AppendLog(text); break;
             case "log": AppendLog(text); break;
             case "report":
                 reports.Add(item.GetProperty("report").Clone());
-                reportText.Text = JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+                InvalidateReport();
                 UpdateResults(); AppendLog($"模型已保存：{reports[^1].GetProperty("output_path").GetString()}"); break;
             case "complete":
-                Progress.Value = 100; Status.Text = text; AppendLog(text);
+                Progress.IsIndeterminate = false; Progress.Value = 100; Status.Text = text; AppendLog(text);
                 ProgressLabel.Text = "100%"; ShowNotice("转换完成", text, InfoBarSeverity.Success); NavigateTo(1); break;
             case "cancelled": Status.Text = text; AppendLog(text); break;
             case "error": AppendLog(text); break;
@@ -307,15 +367,87 @@ public sealed partial class MainWindow : Window
     }
     private void AppendLog(string message)
     {
-        if (log.Text.Length > 60000) log.Text = log.Text[^40000..];
-        log.Text += $"[{DateTime.Now:HH:mm:ss}] {message}\n";
+        logBuffer.Append('[').Append(DateTime.Now.ToString("HH:mm:ss")).Append("] ").AppendLine(message);
+        if (logBuffer.Length > 60000) logBuffer.Remove(0, logBuffer.Length - 45000);
+        logDirty = true;
+        if (!logTimer.IsEnabled) logTimer.Start();
+    }
+    private void FlushLog()
+    {
+        if (!logDirty) { logTimer.Stop(); return; }
+        log.Text = logBuffer.ToString();
+        logDirty = false;
+    }
+    private void RefreshElapsed()
+    {
+        if (!busy) return;
+        Elapsed.Text = $"已用时间 {watch.Elapsed:hh\\:mm\\:ss}";
+        var silence = (DateTime.UtcNow - lastEngineEventUtc).TotalSeconds;
+        Heartbeat.Text = silence >= 5 ? $"后台计算中 · {silence:0} 秒无新进度" : "引擎运行中";
+        if (silence >= 10 && Progress.Value < 99) Progress.IsIndeterminate = true;
+    }
+    private void ClearLog()
+    {
+        logTimer.Stop(); logBuffer.Clear(); logDirty = false; log.Text = "";
+    }
+    private void InvalidateReport()
+    {
+        reportRevision++; formattedReport = null; reportPages.Clear(); reportPage = 0;
+        reportText.Text = reports.Count == 0 ? "转换报告将在这里显示。" : "点击“转换报告”查看完整 JSON。";
+        UpdateReportPageControls();
+        if (activityTabs?.SelectedIndex == 2) _ = PrepareReportAsync(reportRevision);
+    }
+    private async Task PrepareReportAsync(int revision)
+    {
+        if (reports.Count == 0 || formattedReport != null || reportPreparingRevision == revision) return;
+        reportPreparingRevision = revision;
+        var snapshot = reports.ToArray();
+        reportText.Text = "正在后台整理报告…";
+        try
+        {
+            var json = await Task.Run(() => JsonSerializer.Serialize(snapshot, ReportJsonOptions));
+            if (revision != reportRevision) return;
+            formattedReport = json; reportPages.Clear();
+            for (var start = 0; start < json.Length;)
+            {
+                var end = Math.Min(start + ReportPageLength, json.Length);
+                if (end < json.Length && char.IsHighSurrogate(json[end - 1])) end++;
+                reportPages.Add((start, end - start)); start = end;
+            }
+            ShowReportPage();
+        }
+        catch (Exception ex)
+        {
+            if (revision == reportRevision) reportText.Text = $"报告显示失败：{ex.Message}";
+        }
+        finally
+        {
+            if (reportPreparingRevision == revision) reportPreparingRevision = -1;
+        }
+    }
+    private void ShowReportPage()
+    {
+        if (formattedReport == null || reportPages.Count == 0) { UpdateReportPageControls(); return; }
+        reportPage = Math.Clamp(reportPage, 0, reportPages.Count - 1);
+        var (start, length) = reportPages[reportPage];
+        reportText.Text = formattedReport.Substring(start, length);
+        UpdateReportPageControls();
+    }
+    private void UpdateReportPageControls()
+    {
+        if (reportPrevious == null || reportNext == null) return;
+        reportPrevious.IsEnabled = reportPage > 0;
+        reportNext.IsEnabled = reportPage + 1 < reportPages.Count;
+        reportPageLabel.Text = reportPages.Count == 0 ? "报告按页显示，不省略内容"
+            : $"第 {reportPage + 1} / {reportPages.Count} 页 · 另存包含完整报告";
     }
     private async void OpenOutput(object sender, RoutedEventArgs args)
     {
         try
         {
-            if (!Directory.Exists(output.Text.Trim())) throw new DirectoryNotFoundException("输出文件夹尚不存在。");
-            await Windows.System.Launcher.LaunchFolderAsync(await StorageFolder.GetFolderFromPathAsync(Path.GetFullPath(output.Text.Trim())));
+            var target = OutputRoot();
+            if (!Directory.Exists(target)) throw new DirectoryNotFoundException("输出文件夹尚不存在；完成一次转换后即可打开。");
+            await Windows.System.Launcher.LaunchFolderAsync(await StorageFolder.GetFolderFromPathAsync(target));
         }
         catch (Exception ex) { ShowError(ex); }
     }
@@ -327,7 +459,11 @@ public sealed partial class MainWindow : Window
             var picker = new FileSavePicker { SuggestedFileName = "litematica-reports" }; InitializePicker(picker);
             picker.FileTypeChoices.Add("JSON 报告", new List<string> { ".json" });
             var file = await picker.PickSaveFileAsync();
-            if (file != null) await FileIO.WriteTextAsync(file, reportText.Text);
+            if (file == null) return;
+            if (formattedReport == null) await PrepareReportAsync(reportRevision);
+            while (formattedReport == null && reportPreparingRevision == reportRevision)
+                await Task.Delay(40);
+            if (formattedReport != null) await FileIO.WriteTextAsync(file, formattedReport);
         }
         catch (Exception ex) { ShowError(ex); }
     }
