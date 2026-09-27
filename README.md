@@ -1,10 +1,10 @@
 # Litematica 3D
 
-## 0.6.1 preview · Windows 原生 WinUI 3
+## 0.6.2 preview · Windows 原生 WinUI 3
 
-Litematica 3D 0.6.1 在合并 PR #1 的 WinUI 工作台基础上，修复了转换时界面卡顿、耗时不更新、报告自动落盘和输出目录分类问题。它使用 C# / XAML 界面并复用 Python 转换引擎，提供批量导入、打印/视觉/渲染/自定义预设、高级参数、进度、取消、日志、报告和主题设置。
+Litematica 3D 使用 C# / XAML 工作台并复用 Python 转换引擎，提供批量导入、打印/视觉/渲染/自定义预设、高级参数、进度、取消、日志、报告和主题设置。
 
-下载 [0.6.1 WinUI 便携版](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.6.1/Litematica3D-WinUI-v0.6.1-win-x64.zip)，完整解压后运行 `Litmetica3D.WinUI.exe`。便携版带有运行所需的 .NET、Python 和 Minecraft 26.2 资源，无需安装 Minecraft。
+下载 [0.6.2 WinUI 便携版](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.6.2/Litematica3D-WinUI-v0.6.2-win-x64.zip)，完整解压后运行 `Litmetica3D.WinUI.exe`。便携版带有运行所需的 .NET、Python 和 Minecraft 26.2 资源，无需安装 Minecraft。
 
 ```powershell
 .\setup_winui.ps1
@@ -15,7 +15,7 @@ Litematica 3D 0.6.1 在合并 PR #1 的 WinUI 工作台基础上，修复了转�
 
 > 将 Minecraft Litematica 投影转换为适合 **3D 打印**、**模型预览**和 **Blender 渲染**的 STL / OBJ 模型。
 
-![Version](https://img.shields.io/badge/version-0.6.1--preview-f59e0b)
+![Version](https://img.shields.io/badge/version-0.6.2--preview-f59e0b)
 ![Platform](https://img.shields.io/badge/platform-Windows-2563eb)
 ![Minecraft](https://img.shields.io/badge/Minecraft-26.2-16a34a)
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776ab)
@@ -40,7 +40,7 @@ Litematica 3D 可以读取 `.litematic` 文件中的区域、坐标、方块名�
 
 ## 快速下载与使用
 
-1. 下载 [v0.6.1 WinUI 预览版便携包](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.6.1/Litematica3D-WinUI-v0.6.1-win-x64.zip)。
+1. 下载 [v0.6.2 WinUI 预览版便携包](https://github.com/zzhaccount1121/litmetica3d/releases/download/v0.6.2/Litematica3D-WinUI-v0.6.2-win-x64.zip)。
 2. 完整解压 ZIP，不要直接在压缩软件中运行。
 3. 双击 `Litmetica3D.WinUI.exe`。
 4. 选择一个 `.litematic` 文件和总输出位置；界面会自动按 `L3D_output/投影名/` 分类。
@@ -53,6 +53,7 @@ WinUI 便携版包含 Python 运行环境、Manifold3D、Pillow、NumPy、.NET/W
 
 - [0.6.0 合并版说明](RELEASE_NOTES_v0.6.0.md)：合并 PR #1，新增原生 WinUI 3 工作台和独立便携包。
 - [0.6.1 修复版说明](RELEASE_NOTES_v0.6.1.md)：修复 UI 响应、耗时更新、报告副作用及批量输出管理。
+- [0.6.2 预览版说明](RELEASE_NOTES_v0.6.2.md)。
 
 ## 目录
 

@@ -6,5 +6,5 @@ Usage:
     python -m litmetica3d input.litematic output.obj --color
 """
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 __author__ = "litmetica3d"

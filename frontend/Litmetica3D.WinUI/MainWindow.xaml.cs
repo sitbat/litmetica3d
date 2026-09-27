@@ -173,7 +173,6 @@ public sealed partial class MainWindow : Window
         var stl = Value("output_format") == "stl";
         if (stl) Set("geometry", "print");
         choices["geometry"].IsEnabled = !stl;
-        checks["stl_binary"].IsEnabled = stl;
         var visual = !stl && Value("geometry") == "visual";
         visualGroup.IsEnabled = visual;
         numbers["minimum_thickness"].IsEnabled = !visual;
