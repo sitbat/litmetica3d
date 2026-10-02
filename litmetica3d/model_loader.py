@@ -307,7 +307,14 @@ class ModelLoader:
         self.tinted_texture_count = 0
 
         if self.jar is not None:
-            self._asset_names = set(self.jar.namelist())
+            # Windows Compress-Archive can store backslashes in ZIP entries.
+            # ZipInfo normalizes these only on Windows, so retain the actual
+            # entry object while indexing Minecraft's portable slash paths.
+            self._archive_entries = {
+                info.filename.replace("\\", "/"): info
+                for info in self.jar.infolist()
+            }
+            self._asset_names = set(self._archive_entries)
         else:
             assets = self.asset_path / "assets"
             self._asset_names = {
@@ -323,15 +330,12 @@ class ModelLoader:
         )
 
     def _read_json(self, path: str) -> dict:
-        if self.jar is not None:
-            raw = self.jar.read(path)
-        else:
-            raw = (self.asset_path / Path(path)).read_bytes()
+        raw = self._read_bytes(path)
         return json.loads(raw.decode("utf-8"))
 
     def _read_bytes(self, path: str) -> bytes:
         if self.jar is not None:
-            return self.jar.read(path)
+            return self.jar.read(self._archive_entries[path])
         return (self.asset_path / Path(path)).read_bytes()
 
     @staticmethod

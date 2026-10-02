@@ -21,6 +21,8 @@
 
 补充修复：NBT 有符号 byte、数组截断与负长度；组件过滤后再计算填腔体积，避免把删除组件的体积抵消填腔量。
 
+首次跨平台 CI 还发现内置资源 ZIP 的条目使用 Windows 反斜杠，Python 在 Linux 上不会自动归一化。资源加载器现在统一索引路径分隔符，并通过原始 `ZipInfo` 读取载荷，兼容两种 ZIP 路径和目录资源。同时修正测试中的 Windows 短路径/长路径比较，按规范化路径校验输出位置。
+
 ## 结构与性能改进
 
 - 拆出共享参数、灯光处理、场景遍历和 Qt worker；保留 `conversion.ConversionOptions` 等旧导入入口。
@@ -43,7 +45,7 @@
 
 ## 验证范围
 
-- 本地全量 Python 回归：`python -m pytest -q -p no:cacheprovider`，269 项测试、73 项子测试通过，无警告；Qt 使用 `QT_QPA_PLATFORM=offscreen`。
+- 本地全量 Python 回归：`python -m pytest -q -p no:cacheprovider`，273 项测试、73 项子测试通过，无警告；Qt 使用 `QT_QPA_PLATFORM=offscreen`。
 - wheel 和 sdist 可构建；独立安装目录能导入包、读取内置 stone 资源并执行 `--version`；editable 安装通过。
 - C# EngineSmoke 实际转换、目录编号和取消三项通过。
 - WinUI Release 编译成功，0 警告、0 错误。此次工作目录很长，构建时指定较短的中间输出目录以避开 XAML 编译器路径问题。
