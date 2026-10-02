@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <_PythonPackageMetadata>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\litmetica3d\__init__.py'))</_PythonPackageMetadata>
+    <Version>$([System.Text.RegularExpressions.Regex]::Match('$(_PythonPackageMetadata)', '(?m)^__version__ = &quot;([^&quot;]+)&quot;').Groups[1].Value)</Version>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <RootNamespace>Litmetica3D.WinUI</RootNamespace>

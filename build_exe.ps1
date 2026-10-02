@@ -1,6 +1,9 @@
 $ErrorActionPreference = "Stop"
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $project
+$version = python -c "from litmetica3d import __version__; print(__version__)"
+if ($LASTEXITCODE -ne 0) { throw "读取版本失败" }
+$packageName = "litmetica3d-v$version"
 python -m pytest -q
 if ($LASTEXITCODE -ne 0) { throw "测试失败，停止打包" }
 $assetArchive = Join-Path $project "litmetica3d/mc_assets/26.2.zip"
@@ -9,11 +12,15 @@ if (Test-Path -LiteralPath $assetArchive) {
 }
 Compress-Archive -Path "litmetica3d/mc_assets/26.2/*" `
   -DestinationPath $assetArchive -CompressionLevel Optimal
-python -m PyInstaller --noconfirm --clean "litmetica3d-v0.5.2-portable.spec"
+python -m PyInstaller --noconfirm --clean "litmetica3d-portable.spec"
 if ($LASTEXITCODE -ne 0) { throw "EXE 构建失败" }
 New-Item -ItemType Directory -Path "release" -Force | Out-Null
-Copy-Item -LiteralPath "README.md","LICENSE","便携版使用说明.txt","RELEASE_NOTES_v0.5.2.md" -Destination "dist/litmetica3d-v0.5.2" -Force
-Compress-Archive -Path "dist/litmetica3d-v0.5.2" `
-  -DestinationPath "release/litmetica3d-v0.5.2-portable.zip" `
+Copy-Item -LiteralPath "README.md","LICENSE","便携版使用说明.txt" -Destination "dist/$packageName" -Force
+$releaseNotes = "RELEASE_NOTES_v$version.md"
+if (Test-Path -LiteralPath $releaseNotes) {
+  Copy-Item -LiteralPath $releaseNotes -Destination "dist/$packageName" -Force
+}
+Compress-Archive -Path "dist/$packageName" `
+  -DestinationPath "release/$packageName-portable.zip" `
   -CompressionLevel Optimal -Force
-Write-Host "完成: release/litmetica3d-v0.5.2-portable.zip"
+Write-Host "完成: release/$packageName-portable.zip"

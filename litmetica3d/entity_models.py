@@ -49,7 +49,7 @@ def _rotate(faces: list[Face], axis: str, angle: float) -> list[Face]:
 
 
 def _facing_y(faces: list[Face], facing: str, base: str = "south") -> list[Face]:
-    order = ["south", "west", "north", "east"]
+    order = ["south", "east", "north", "west"]
     if base not in order or facing not in order:
         return faces
     angle = (order.index(facing) - order.index(base)) * 90
@@ -59,21 +59,9 @@ def _facing_y(faces: list[Face], facing: str, base: str = "south") -> list[Face]
 def _chest(
     name: str, props: dict[str, str], texture: str | None = None
 ) -> list[Face]:
-    if texture is not None:
-        return _visual_chest(name, props, texture)
-    # Closed chest: body, lid and front latch.  Double-chest halves reach
-    # the shared block edge while single chests retain the one-pixel margin.
-    chest_type = props.get("type", "single")
-    x1, x2 = 1, 15
-    if chest_type == "left":
-        x2 = 16
-    elif chest_type == "right":
-        x1 = 0
-    faces = []
-    faces += _box((x1, 0, 1, x2, 10, 15), name, texture, (0, 19))
-    faces += _box((x1, 10, 1, x2, 14, 15), name, texture, (0, 0))
-    faces += _box((7, 7, 14.75, 9, 12, 16), name, texture, (0, 0))
-    return _facing_y(faces, props.get("facing", "south"))
+    # Print and visual modes share the native body, lid and latch geometry.
+    # Only the visual mode applies the chest-specific texture net.
+    return _visual_chest(name, props, texture)
 
 
 def _chest_box(values, material, texture, uv_origin):
@@ -126,9 +114,11 @@ def _visual_chest(name, props, texture):
         ((x1, 9, 1, x2, 14, 15), (0, 0)),
         ((lock_x1, 7, 15, lock_x2, 11, 16), (0, 0)),
     ]:
-        faces.extend(_chest_box(box, name, texture, origin))
-    angle = {'south': 0, 'west': -90, 'north': 180, 'east': 90}.get(props.get('facing'), 0)
-    return _rotate(faces, 'y', angle) if angle else faces
+        faces.extend(
+            _chest_box(box, name, texture, origin)
+            if texture is not None else _box(box, name)
+        )
+    return _facing_y(faces, props.get("facing", "south"))
 
 
 def _shulker(

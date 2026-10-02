@@ -56,7 +56,8 @@ def test_lantern_mask_does_not_emit_every_pixel():
         image = Image.open(
             __import__("io").BytesIO(loader.texture_bytes(key))
         ).convert("RGBA")
-        pixels = list(image.get_flattened_data())
+        pixels = [image.getpixel((x, y))
+                  for y in range(image.height) for x in range(image.width)]
         lit = sum(1 for r, g, b, _ in pixels if r or g or b)
         assert 0 < lit < len(pixels)
     finally:

@@ -5,6 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QAbstractSpinBox
 
+from litmetica3d import __version__
 from litmetica3d.gui_app import MainWindow, VERSION
 
 
@@ -14,7 +15,7 @@ def test_preset_gui_layout_and_values():
     settings.clear()
     window = MainWindow()
     try:
-        assert VERSION == "0.5.3"
+        assert VERSION == __version__
         assert window.dark_theme is True
         for spin in (
             window.scale_spin, window.thickness_spin,
@@ -92,6 +93,7 @@ def test_advanced_constraints_and_normalized_snapshot():
         assert printed["emission"] is False
         assert printed["blender_lights"] == "none"
         assert not window.geometry_combo.isEnabled()
+        assert not window.optimize_combo.isEnabled()
         assert not window.visual_group.isEnabled()
         assert not window.textures_check.isChecked()
 
@@ -103,6 +105,8 @@ def test_advanced_constraints_and_normalized_snapshot():
         assert visual["textures"] is True
         assert visual["emission"] is True
         assert window.geometry_combo.isEnabled()
+        assert window.optimize_combo.isEnabled()
+        assert window.optimize_combo.count() == 2
         assert window.visual_group.isEnabled()
         assert window.textures_check.isChecked()
         assert not window.textures_check.isEnabled()

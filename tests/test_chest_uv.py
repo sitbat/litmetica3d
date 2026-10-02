@@ -1,5 +1,5 @@
 import pytest
-from litmetica3d.entity_models import get_entity_geometry, _box, _facing_y
+from litmetica3d.entity_models import get_entity_geometry
 
 
 def signature(faces):
@@ -20,9 +20,10 @@ def test_lid_upper_island_and_native_v_direction(kind,width):
 
 
 @pytest.mark.parametrize('facing,offset', [('south',(1,0)),('north',(-1,0)),('east',(0,-1)),('west',(0,1))])
-def test_double_halves_meet_and_latches_join(facing,offset):
-    right=get_entity_geometry('minecraft:chest',{'type':'right','facing':facing},visual=True)
-    left=get_entity_geometry('minecraft:chest',{'type':'left','facing':facing},visual=True)
+@pytest.mark.parametrize('visual', [False, True])
+def test_double_halves_meet_and_latches_join(facing,offset,visual):
+    right=get_entity_geometry('minecraft:chest',{'type':'right','facing':facing},visual=visual)
+    left=get_entity_geometry('minecraft:chest',{'type':'left','facing':facing},visual=visual)
     def bounds(faces,dx=0,dz=0):
         points=[(v.x+dx,v.z+dz) for f in faces for v in f.vertices]
         return [(min(p[i] for p in points),max(p[i] for p in points)) for i in (0,1)]
@@ -39,8 +40,9 @@ def test_double_halves_meet_and_latches_join(facing,offset):
 
 
 @pytest.mark.parametrize('facing,axis,positive', [('south',2,True),('north',2,False),('east',0,True),('west',0,False)])
-def test_lock_faces_requested_direction(facing,axis,positive):
-    faces=get_entity_geometry('minecraft:chest',{'type':'single','facing':facing},visual=True)
+@pytest.mark.parametrize('visual', [False, True])
+def test_lock_faces_requested_direction(facing,axis,positive,visual):
+    faces=get_entity_geometry('minecraft:chest',{'type':'single','facing':facing},visual=visual)
     coords=[(v.x,v.y,v.z)[axis] for f in faces[12:] for v in f.vertices]
     assert (min(coords)>0.9) if positive else (max(coords)<0.1)
 
@@ -54,11 +56,8 @@ def test_all_chest_textures_use_same_top_net(name):
 
 @pytest.mark.parametrize('kind',['single','left','right'])
 @pytest.mark.parametrize('facing',['south','north','east','west'])
-def test_print_geometry_is_unchanged(kind,facing):
-    x1,x2=(1,16) if kind=='left' else (0,15) if kind=='right' else (1,15)
-    original=[]
-    for box,origin in [((x1,0,1,x2,10,15),(0,19)),((x1,10,1,x2,14,15),(0,0)),((7,7,14.75,9,12,16),(0,0))]:
-        original.extend(_box(box,'minecraft:chest',uv_origin=origin))
-    original=_facing_y(original,facing)
-    actual=get_entity_geometry('minecraft:chest',{'type':kind,'facing':facing},visual=False)
-    assert signature(original)==signature(actual)
+def test_print_and_visual_modes_share_chest_geometry(kind,facing):
+    printed=get_entity_geometry('minecraft:chest',{'type':kind,'facing':facing},visual=False)
+    visual=get_entity_geometry('minecraft:chest',{'type':kind,'facing':facing},visual=True)
+    assert [f.vertices for f in printed]==[f.vertices for f in visual]
+    assert all(f.texture is None and f.material=='minecraft:chest' for f in printed)

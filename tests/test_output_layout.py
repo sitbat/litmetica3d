@@ -1,4 +1,6 @@
 import os
+import json
+from pathlib import Path
 import threading
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -7,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from litmetica3d.conversion import ConversionReport
 from litmetica3d.gui_app import MainWindow
-from litmetica3d.gui_qt import ConversionWorker
+from litmetica3d.gui_worker import ConversionWorker
 from litmetica3d.output_layout import next_model_path, normalize_output_root
 
 
@@ -44,6 +46,7 @@ def test_worker_groups_multiple_files_and_obj_assets(tmp_path):
         failures = []
         worker.completed.connect(completed.append)
         worker.failed.connect(failures.append)
+        worker.report_ready.connect(lambda value: outputs.append(Path(json.loads(value)["output_path"])))
 
         def fake_convert(data, _index, _count):
             output = data["output_path"]
@@ -51,7 +54,6 @@ def test_worker_groups_multiple_files_and_obj_assets(tmp_path):
             output.write_text("obj", encoding="utf-8")
             output.with_suffix(".mtl").write_text("mtl", encoding="utf-8")
             (output.parent / f"{output.stem}_textures").mkdir()
-            outputs.append(output)
             return ConversionReport(str(data["input_path"]), str(output))
 
         worker._run_one = fake_convert

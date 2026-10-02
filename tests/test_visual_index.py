@@ -40,8 +40,8 @@ def expected_triangles(mesh):
                                      chunk.textures, chunk.emissions, chunk.emission_strengths):
             key = (int(m), int(t), int(e), round(float(s), 5))
             group = combinations.setdefault(key, len(combinations))
-            corners = [(tuple(float(f'{n:.7g}') for n in p),
-                        tuple(float(f'{n:.7g}') for n in q)) for p, q in zip(v, uv)]
+            corners = [(tuple(float(f'{n:.9g}') for n in p),
+                        tuple(float(f'{n:.9g}') for n in q)) for p, q in zip(v, uv)]
             for ids in ((0,1,2), (0,2,3)):
                 output.append((f'visual_{group}', tuple(corners[i] for i in ids)))
     return output

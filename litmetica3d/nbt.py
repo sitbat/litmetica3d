@@ -10,7 +10,7 @@ Reference: https://wiki.vg/NBT
 import gzip
 import io
 import struct
-from typing import Any
+from typing import Any, BinaryIO
 
 
 # ── Tag type constants ──────────────────────────────────────────────────────
@@ -48,23 +48,41 @@ TAG_NAMES = {
 
 # ── Low-level read helpers ──────────────────────────────────────────────────
 
-def _read_ubyte(data: io.BytesIO) -> int:
-    return struct.unpack(">B", data.read(1))[0]
+def _read_exact(data: BinaryIO, length: int) -> bytes:
+    raw = data.read(length)
+    if len(raw) != length:
+        raise ValueError(f"Truncated NBT payload: expected {length} bytes, got {len(raw)}")
+    return raw
+
+
+def _read_length(data: BinaryIO) -> int:
+    length = _read_int(data)
+    if length < 0:
+        raise ValueError(f"Negative NBT array length: {length}")
+    return length
+
+
+def _read_ubyte(data: BinaryIO) -> int:
+    return struct.unpack(">B", _read_exact(data, 1))[0]
+
+
+def _read_byte(data: BinaryIO) -> int:
+    return struct.unpack(">b", _read_exact(data, 1))[0]
 
 def _read_short(data: io.BytesIO) -> int:
-    return struct.unpack(">h", data.read(2))[0]
+    return struct.unpack(">h", _read_exact(data, 2))[0]
 
 def _read_int(data: io.BytesIO) -> int:
-    return struct.unpack(">i", data.read(4))[0]
+    return struct.unpack(">i", _read_exact(data, 4))[0]
 
 def _read_long(data: io.BytesIO) -> int:
-    return struct.unpack(">q", data.read(8))[0]
+    return struct.unpack(">q", _read_exact(data, 8))[0]
 
 def _read_float(data: io.BytesIO) -> float:
-    return struct.unpack(">f", data.read(4))[0]
+    return struct.unpack(">f", _read_exact(data, 4))[0]
 
 def _read_double(data: io.BytesIO) -> float:
-    return struct.unpack(">d", data.read(8))[0]
+    return struct.unpack(">d", _read_exact(data, 8))[0]
 
 def _decode_nbt_string(raw: bytes) -> str:
     """Decode standard UTF-8 and Java Modified UTF-8/CESU-8 strings."""
@@ -101,20 +119,20 @@ def _decode_nbt_string(raw: bytes) -> str:
         return "".join(result)
 
 def _read_string(data: io.BytesIO) -> str:
-    length = struct.unpack(">H", data.read(2))[0]
-    return _decode_nbt_string(data.read(length))
+    length = struct.unpack(">H", _read_exact(data, 2))[0]
+    return _decode_nbt_string(_read_exact(data, length))
 
 def _read_byte_array(data: io.BytesIO) -> bytearray:
-    length = _read_int(data)
-    return bytearray(data.read(length))
+    length = _read_length(data)
+    return bytearray(_read_exact(data, length))
 
 def _read_int_array(data: io.BytesIO) -> list[int]:
-    length = _read_int(data)
-    return [struct.unpack(">i", data.read(4))[0] for _ in range(length)]
+    length = _read_length(data)
+    return [_read_int(data) for _ in range(length)]
 
 def _read_long_array(data: io.BytesIO) -> list[int]:
-    length = _read_int(data)
-    return [struct.unpack(">q", data.read(8))[0] for _ in range(length)]
+    length = _read_length(data)
+    return [_read_long(data) for _ in range(length)]
 
 
 # ── Low-level write helpers ─────────────────────────────────────────────────
@@ -184,7 +202,7 @@ def _tag_type_for_value(value: Any) -> int:
 
 # ── Reading ─────────────────────────────────────────────────────────────────
 
-def read_nbt(data: io.BytesIO) -> dict[str, Any]:
+def read_nbt(data: BinaryIO, *, skip_tags: frozenset[str] = frozenset()) -> dict[str, Any]:
     """
     Read an NBT root compound from a BytesIO stream.
 
@@ -195,13 +213,13 @@ def read_nbt(data: io.BytesIO) -> dict[str, Any]:
     if tag_type != TAG_COMPOUND:
         raise ValueError(f"Root tag must be TAG_Compound (10), got {tag_type}")
     _root_name = _read_string(data)  # root name – we don't store it
-    return _read_compound(data)
+    return _read_compound(data, skip_tags)
 
 
-def _read_tag(data: io.BytesIO, tag_type: int) -> Any:
+def _read_tag(data: BinaryIO, tag_type: int, skip_tags: frozenset[str] = frozenset()) -> Any:
     """Dispatch reader for a single tag value (no name, no type byte)."""
     if tag_type == TAG_BYTE:
-        return _read_ubyte(data)
+        return _read_byte(data)
     elif tag_type == TAG_SHORT:
         return _read_short(data)
     elif tag_type == TAG_INT:
@@ -221,24 +239,24 @@ def _read_tag(data: io.BytesIO, tag_type: int) -> Any:
     elif tag_type == TAG_LONG_ARRAY:
         return _read_long_array(data)
     elif tag_type == TAG_LIST:
-        return _read_list(data)
+        return _read_list(data, skip_tags)
     elif tag_type == TAG_COMPOUND:
-        return _read_compound(data)
+        return _read_compound(data, skip_tags)
     else:
         raise ValueError(f"Unknown NBT tag type: {tag_type}")
 
 
-def _read_list(data: io.BytesIO) -> list:
+def _read_list(data: BinaryIO, skip_tags: frozenset[str] = frozenset()) -> list:
     """Read a TAG_List: list_type byte, length int, then length entries."""
     list_type = _read_ubyte(data)
     length = _read_int(data)
     result = []
     for _ in range(length):
-        result.append(_read_tag(data, list_type))
+        result.append(_read_tag(data, list_type, skip_tags))
     return result
 
 
-def _read_compound(data: io.BytesIO) -> dict[str, Any]:
+def _read_compound(data: BinaryIO, skip_tags: frozenset[str] = frozenset()) -> dict[str, Any]:
     """Read a TAG_Compound: name-type pairs terminated by TAG_End."""
     result = {}
     while True:
@@ -246,8 +264,51 @@ def _read_compound(data: io.BytesIO) -> dict[str, Any]:
         if tag_type == TAG_END:
             break
         name = _read_string(data)
-        result[name] = _read_tag(data, tag_type)
+        if name in skip_tags:
+            _skip_tag(data, tag_type)
+        else:
+            result[name] = _read_tag(data, tag_type, skip_tags)
     return result
+
+
+def _skip_bytes(data: BinaryIO, length: int) -> None:
+    """Consume an unwanted payload with bounded memory, checking truncation."""
+    while length:
+        count = min(length, 65536)
+        _read_exact(data, count)
+        length -= count
+
+
+def _skip_tag(data: BinaryIO, tag_type: int) -> None:
+    """Skip a payload without allocating its arrays, lists or compounds."""
+    sizes = {TAG_BYTE: 1, TAG_SHORT: 2, TAG_INT: 4, TAG_LONG: 8,
+             TAG_FLOAT: 4, TAG_DOUBLE: 8}
+    if tag_type in sizes:
+        _skip_bytes(data, sizes[tag_type])
+    elif tag_type == TAG_STRING:
+        _skip_bytes(data, struct.unpack(">H", _read_exact(data, 2))[0])
+    elif tag_type in (TAG_BYTE_ARRAY, TAG_INT_ARRAY, TAG_LONG_ARRAY):
+        width = {TAG_BYTE_ARRAY: 1, TAG_INT_ARRAY: 4, TAG_LONG_ARRAY: 8}[tag_type]
+        _skip_bytes(data, _read_length(data) * width)
+    elif tag_type == TAG_LIST:
+        subtype = _read_ubyte(data)
+        length = _read_int(data)
+        if length <= 0:
+            return
+        if subtype in sizes:
+            _skip_bytes(data, sizes[subtype] * length)
+        else:
+            for _ in range(length):
+                _skip_tag(data, subtype)
+    elif tag_type == TAG_COMPOUND:
+        while True:
+            subtype = _read_ubyte(data)
+            if subtype == TAG_END:
+                break
+            _skip_tag(data, TAG_STRING)  # tag name
+            _skip_tag(data, subtype)
+    else:
+        raise ValueError(f"Unknown NBT tag type: {tag_type}")
 
 
 # ── Writing ─────────────────────────────────────────────────────────────────
@@ -286,7 +347,7 @@ def _write_compound_payload(buf: io.BytesIO, data: dict[str, Any]) -> None:
 def _write_tag_value(buf: io.BytesIO, value: Any, tag_type: int) -> None:
     """Write a single tag value (already dispatched by type)."""
     if tag_type == TAG_BYTE:
-        _write_ubyte(buf, int(value))
+        buf.write(struct.pack(">b", int(value)))
     elif tag_type == TAG_SHORT:
         _write_short(buf, value)
     elif tag_type == TAG_INT:
@@ -332,16 +393,16 @@ def _write_list_value(buf: io.BytesIO, value: list) -> None:
 
 # ── GZip helpers ────────────────────────────────────────────────────────────
 
-def read_gzip_nbt(path: str) -> dict[str, Any]:
+def read_gzip_nbt(path: str, *, skip_tags: frozenset[str] = frozenset()) -> dict[str, Any]:
     """Read a GZip-compressed NBT file and return the root compound dict."""
     with gzip.open(path, "rb") as f:
-        return read_nbt(io.BytesIO(f.read()))
+        return read_nbt(f, skip_tags=skip_tags)
 
 
 def read_raw_nbt(path: str) -> dict[str, Any]:
     """Read an uncompressed NBT file and return the root compound dict."""
     with open(path, "rb") as f:
-        return read_nbt(io.BytesIO(f.read()))
+        return read_nbt(f)
 
 
 def write_gzip_nbt(path: str, data: dict[str, Any]) -> None:

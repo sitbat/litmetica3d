@@ -315,7 +315,6 @@ def process_components_and_cavities(
     report.cavities = [
         CavityInfo(abs(shell.volume), shell.bounds) for shell in negatives
     ]
-    report.volume_before_cavity_fill = sum(shell.volume for shell in shells)
 
     removed_bounds = []
     selected_main = None
@@ -335,14 +334,14 @@ def process_components_and_cavities(
         positives = [selected_main]
         report.main_component_volume = selected_main.volume
         report.main_component_bounds = selected_main.bounds
-        if cavities == "preserve":
-            negatives = _cavities_owned_by_main(
-                selected_main,
-                positives=[selected_main, *removed],
-                cavities=negatives,
-            )
-        else:
-            negatives = []
+        # Keep the main component's cavities for both preserving its boundary
+        # and measuring its volume before fill. Removed components must not
+        # reduce the reported amount added by cavity filling.
+        negatives = _cavities_owned_by_main(
+            selected_main,
+            positives=[selected_main, *removed],
+            cavities=negatives,
+        )
 
     if components == "remove-small":
         kept = []
@@ -361,6 +360,12 @@ def process_components_and_cavities(
                            for bounds in removed_bounds)
             ]
 
+    # This is the selected geometry's material volume, before removing its
+    # cavity boundaries. Positive islands inside retained cavities contribute
+    # here, so their already occupied volume is not counted as newly filled.
+    report.volume_before_cavity_fill = sum(
+        shell.volume for shell in (*positives, *negatives)
+    )
     report.retained_component_count = len(positives)
     if cavities == "fill":
         selected = positives
@@ -380,14 +385,21 @@ def process_components_and_cavities(
             vertices, triangles[mask], return_mesh=True
         )
 
-    report.volume_after_cavity_fill = sum(
-        shell.volume for shell in positives
-    ) + (0.0 if cavities == "fill" else sum(
-        shell.volume for shell in negatives
-    ))
-    report.filled_cavity_volume = max(
-        0.0,
-        report.volume_after_cavity_fill - report.volume_before_cavity_fill,
+        if cavities == "fill" and report.cavity_count and len(positives) > 1:
+            # Removing a negative shell fills its enclosing component, which
+            # can now contain previously separate positive shells. Merely
+            # composing those surfaces double-counts their volume and leaves
+            # interior walls in the exported mesh. Union the filled solids.
+            result = union_balanced(result.decompose())
+            filled_mesh = result.to_mesh()
+            vertices = np.asarray(filled_mesh.vert_properties[:, :3])
+            triangles = np.asarray(filled_mesh.tri_verts, dtype=np.uint32)
+            report.retained_component_count = len(result.decompose())
+
+    report.volume_after_cavity_fill = result.volume()
+    report.filled_cavity_volume = (
+        max(0.0, report.volume_after_cavity_fill - report.volume_before_cavity_fill)
+        if cavities == "fill" else 0.0
     )
     if return_mesh:
         if selected is None:

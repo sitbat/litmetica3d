@@ -38,7 +38,7 @@ Python 路径留空时优先选择随包环境；文件夹可移动，转换无�
 Windows App SDK 固定为 2.5.1，构建结果自带 .NET 与 Windows App SDK 运行库。
 不能只复制单个 EXE；源码启动还需要仓库中的 Python 引擎、Minecraft 资源与 `.venv`。
 
-Windows 下 `python run_gui.py`、`litmetica3d --gui` 和 `litmetica3d-gui` 也默认启动 WinUI。
+Windows 下 `python run_gui.py`、`litmetica3d --gui` 和 `litmetica3d-gui` 优先启动已构建的 WinUI；找不到可执行文件时自动使用 Qt，因此 wheel 安装也可启动桌面界面。
 旧界面可显式运行 `python -m litmetica3d.gui_app`；非 Windows 平台仍使用原 Qt 界面。
 EXE 接受一个或多个 `.litematic` 路径参数，仅导入列表，不自动开始转换。
 
@@ -62,7 +62,7 @@ frontend/Litmetica3D.WinUI/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/L
 
 每个投影输出到 `所选目录/L3D_output/投影名/`，其中包含模型、材质、贴图和 Blender 辅助文件；转换报告只显示在“日志”页，需要时可手动另存 JSON。
 若目标投影目录已存在，会自动选择带序号的新目录，不覆盖既有结果；批次内同名投影仍会被拒绝。
-单文件成功后才将临时目录重命名为最终目录。取消批次时，先前完成的文件保留。
+批次会预留输出名称，避免 `a` 和 `a (2)` 等文件相互占用。单文件转换成功后才独占创建目标目录并搬入临时输出；若目标已被其他任务占用，则重新编号。取消批次时，先前完成的文件保留。
 正常取消会清理当前临时文件；如果原生计算在 5 秒内没有响应，程序终止进程树，
 可能留下 `.litmetica3d-*` 临时目录，可在确认没有转换运行时手动清理。
 
@@ -94,7 +94,7 @@ dotnet run --project tests/WinUI.EngineSmoke -- "C:\path\sample.litematic"
 JSON-lines 子进程退出、stdin 取消、临时文件清理、输出目录冲突处理及非有限数值。
 旧 Qt 界面的测试需要额外安装 PySide6；WinUI 的安装脚本不安装 Qt。
 
-本次验证：Release 构建零警告/错误；53 项非 Qt Python 测试通过；C# 客户端的转换、
+原有界面版本的验证记录：Release 构建零警告/错误；53 项非 Qt Python 测试通过；C# 客户端的转换、
 错误传播、取消三项端到端检查通过。原生窗口和导航、参数禁用状态已检查。
 系统文件选择器成功打开，但自动化工具未能定位其独立 PickerHost 窗口，
 因此未完成选择器内的自动点击验证。没有进行真实大型投影的性能测试。

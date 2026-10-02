@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import multiprocessing as mp
-import os
 import pathlib
 import time
 
-from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Slot
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import QSettings, QThread, QTimer, Qt, QUrl, Slot
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication, QAbstractSpinBox, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
     QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
@@ -17,11 +16,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .gui_qt import ConversionWorker
+from .gui_worker import ConversionWorker
+from . import __version__ as VERSION
 from .gui_styles import DARK_STYLE, LIGHT_STYLE
 from .output_layout import normalize_output_root
 
-VERSION = "0.5.3"
 EXTRA_DARK_STYLE = """
 QGroupBox {
     border: 1px solid #2a3547; border-radius: 12px;
@@ -253,14 +252,14 @@ class MainWindow(QMainWindow):
         self.format_combo = self._combo(("stl", "obj"))
         self.water_combo = self._combo(("cube", "drop", "level"))
         self.fallback_combo = self._combo(("cube", "ignore"))
-        self.optimize_combo = self._combo(("raw", "safe", "experimental"))
+        self.optimize_combo = self._combo((("原始网格", "raw"), ("保形压缩", "safe")))
         self.geometry_combo = self._combo(("print", "visual"))
         self.components_combo = self._combo(("keep", "remove-small", "main"))
         self.cavities_combo = self._combo(("preserve", "fill"))
         self.boolean_combo = self._combo(("voxel32", "fail"))
         fields = (
             ("格式", self.format_combo), ("水体", self.water_combo),
-            ("未知方块", self.fallback_combo), ("面数优化", self.optimize_combo),
+            ("未知方块", self.fallback_combo), ("视觉 OBJ 网格", self.optimize_combo),
             ("输出用途", self.geometry_combo), ("独立壳体", self.components_combo),
             ("封闭空腔", self.cavities_combo), ("并集失败", self.boolean_combo),
         )
@@ -509,6 +508,8 @@ class MainWindow(QMainWindow):
             is_print = self._value(self.geometry_combo) == "print"
             is_visual = not is_stl and not is_print
             self.visual_group.setEnabled(is_visual)
+            self.optimize_combo.setEnabled(is_visual)
+            self.optimize_combo.setToolTip("仅视觉 OBJ：保形压缩合并重复顶点并保存四边面，不改变几何轮廓。")
             self.seamless_glass_check.setEnabled(is_visual)
             self.visual_group.setToolTip(
                 "视觉贴图与发光仅在 OBJ + visual 时可用。"
@@ -593,8 +594,8 @@ class MainWindow(QMainWindow):
         if not self.output_edit.text().strip():
             self.output_edit.setText(str(normalize_output_root(pathlib.Path(file).parent)))
         try:
-            from .litematic import load_schematic
-            schematic = load_schematic(file)
+            from .litematic import load_schematic_info
+            schematic = load_schematic_info(file)
             self.regions_edit.setText(", ".join(schematic.regions))
             self._log(f"已读取区域：{', '.join(schematic.regions)}")
         except Exception as exc:
@@ -618,7 +619,8 @@ class MainWindow(QMainWindow):
         selected = self.output_edit.text().strip()
         folder = str(normalize_output_root(selected)) if selected else ""
         if folder and pathlib.Path(folder).exists():
-            os.startfile(folder)
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(pathlib.Path(folder).resolve()))):
+                QMessageBox.warning(self, "输出位置", "无法打开输出文件夹。")
         else:
             QMessageBox.information(self, "输出位置", "输出文件夹不存在。")
 

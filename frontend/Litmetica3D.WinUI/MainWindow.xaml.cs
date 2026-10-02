@@ -151,6 +151,7 @@ public sealed partial class MainWindow : Window
         var print = preset == "print";
         Set("output_format", print ? "stl" : "obj"); Set("geometry", print ? "print" : "visual");
         Set("water", preset == "visual" ? "level" : "drop"); Set("fallback", "ignore");
+        Set("optimize", "safe");
         Set("components", print ? "main" : "keep"); Set("cavities", print ? "fill" : "preserve");
         Set("boolean_fallback", "voxel32"); Set("blender_lights", preset == "visual" ? "material" : "exact");
         numbers["scale"].Value = 1; numbers["minimum_thickness"].Value = 1.0 / 16;
@@ -175,6 +176,8 @@ public sealed partial class MainWindow : Window
         choices["geometry"].IsEnabled = !stl;
         var visual = !stl && Value("geometry") == "visual";
         visualGroup.IsEnabled = visual;
+        choices["optimize"].IsEnabled = visual;
+        ToolTipService.SetToolTip(choices["optimize"], "仅视觉 OBJ：合并重复顶点并保存四边面，不改变几何轮廓。");
         numbers["minimum_thickness"].IsEnabled = !visual;
         foreach (var key in new[] { "components", "cavities", "boolean_fallback" })
             choices[key].IsEnabled = !visual;
@@ -188,7 +191,8 @@ public sealed partial class MainWindow : Window
         emissionBrowse.IsEnabled = emission;
         string Label(string key) => ((ComboBoxItem)choices[key].SelectedItem).Content.ToString() ?? "";
         summary.Text = $"{Value("output_format").ToUpperInvariant()} · {(visual ? "原版贴图" : "封闭实体")}\n" +
-            $"自动优化 · 比例 × {numbers["scale"].Value:g}\n" +
+            $"比例 × {numbers["scale"].Value:g}\n" +
+            (visual ? $"网格：{Label("optimize")}\n" : "") +
             (visual ? $"灯光：{Label("blender_lights")}" : $"壳体：{Label("components")}");
         updating = false;
     }
@@ -283,7 +287,6 @@ public sealed partial class MainWindow : Window
         options["stl_binary"] = true;
         var visual = Value("geometry") == "visual";
         options["textures"] = visual; options["emission"] = visual && Value("blender_lights") != "none";
-        options["optimize"] = "safe";
         options["color"] = false;
         options["solid_textures"] = visual && checks["solid_textures"].IsChecked == true;
         if (visual)

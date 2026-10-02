@@ -9,6 +9,7 @@ visual Blender workflow.  Print geometry never imports or calls this module.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 
@@ -183,7 +184,51 @@ def load_overrides(path: str | Path | None) -> dict:
         raise ValueError("发光配置必须是 JSON 对象")
     data.setdefault("global_multiplier", 1.0)
     data.setdefault("rules", [])
+    data["global_multiplier"] = _finite_number(
+        data["global_multiplier"], "global_multiplier", nonnegative=True,
+    )
+    for index, rule in enumerate(data["rules"]):
+        if not isinstance(rule, dict):
+            continue
+        if "multiplier" in rule:
+            rule["multiplier"] = _finite_number(
+                rule["multiplier"], f"rules[{index}].multiplier", nonnegative=True,
+            )
+        raw_color = rule.get("color")
+        if isinstance(raw_color, list) and len(raw_color) == 3:
+            rule["color"] = [
+                _finite_number(value, f"rules[{index}].color") for value in raw_color
+            ]
     return data
+
+
+def _finite_number(value, label, *, nonnegative=False, float32=False):
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"发光参数 {label} 必须是有限数值") from exc
+    if (isinstance(value, bool) or not math.isfinite(number)
+            or (nonnegative and number < 0)
+            or (float32 and abs(number) > 3.4028234663852886e38)):
+        raise ValueError(f"发光参数 {label} 超出有限{'非负' if nonnegative else ''}数值范围")
+    return number
+
+
+def validate_light_sources(sources):
+    """Validate Blender's numeric fields and JSON before writing any outputs."""
+    for index, source in enumerate(sources):
+        for field in ("level", "power", "radius"):
+            if field in source:
+                _finite_number(source[field], f"lights[{index}].{field}",
+                               nonnegative=True, float32=True)
+        for field in ("position", "color"):
+            for value in source.get(field, ()):
+                _finite_number(value, f"lights[{index}].{field}",
+                               nonnegative=field == "color", float32=True)
+    try:
+        json.dumps(sources, allow_nan=False)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ValueError("发光灯光数据必须是有限数值的 JSON") from exc
 
 
 def resolve_override(
@@ -194,10 +239,8 @@ def resolve_override(
     position: tuple[int, int, int],
 ) -> tuple[float, tuple[float, float, float] | None]:
     """Resolve global, state and coordinate rules in declaration order."""
-    try:
-        multiplier = max(0.0, float(config.get("global_multiplier", 1.0)))
-    except (TypeError, ValueError):
-        multiplier = 1.0
+    multiplier = _finite_number(config.get("global_multiplier", 1.0),
+                                "global_multiplier", nonnegative=True)
     color = None
     for rule in config.get("rules", []):
         if not isinstance(rule, dict):
@@ -219,16 +262,12 @@ def resolve_override(
             for key, value in wanted_properties.items()
         ):
             continue
-        try:
-            multiplier = max(0.0, float(rule.get("multiplier", multiplier)))
-        except (TypeError, ValueError):
-            pass
+        multiplier = _finite_number(rule.get("multiplier", multiplier),
+                                    "rule.multiplier", nonnegative=True)
         raw_color = rule.get("color")
         if isinstance(raw_color, list) and len(raw_color) == 3:
-            try:
-                color = tuple(max(0.0, min(1.0, float(v))) for v in raw_color)
-            except (TypeError, ValueError):
-                pass
+            color = tuple(max(0.0, min(1.0, _finite_number(v, "rule.color")))
+                          for v in raw_color)
     return multiplier, color
 
 

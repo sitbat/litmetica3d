@@ -7,6 +7,8 @@ import struct
 
 import numpy as np
 
+from ..mesh_validation import triangle_normals
+
 
 def export_stl_arrays(
     vertices: np.ndarray,
@@ -30,13 +32,7 @@ def export_stl_arrays(
         stream.write(struct.pack("<I", len(triangles)))
         for start in range(0, len(triangles), batch_size):
             points = vertices[triangles[start:start + batch_size]]
-            normals = np.cross(
-                points[:, 1] - points[:, 0],
-                points[:, 2] - points[:, 0],
-            )
-            lengths = np.linalg.norm(normals, axis=1)
-            nonzero = lengths > 0
-            normals[nonzero] /= lengths[nonzero, None]
+            normals = triangle_normals(points)
             records = np.zeros(len(points), dtype=record_dtype)
             records["normal"] = normals
             records["vertices"] = points
@@ -48,13 +44,7 @@ def _export_ascii_stl(vertices, triangles, path, batch_size):
         stream.write("solid litmetica3d_export\n")
         for start in range(0, len(triangles), batch_size):
             points = vertices[triangles[start:start + batch_size]]
-            normals = np.cross(
-                points[:, 1] - points[:, 0],
-                points[:, 2] - points[:, 0],
-            )
-            lengths = np.linalg.norm(normals, axis=1)
-            nonzero = lengths > 0
-            normals[nonzero] /= lengths[nonzero, None]
+            normals = triangle_normals(points)
             lines = []
             for normal, triangle in zip(normals, points):
                 lines.extend((

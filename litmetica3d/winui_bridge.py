@@ -8,7 +8,6 @@ from __future__ import annotations
 from contextlib import redirect_stdout
 from dataclasses import asdict
 import json
-import math
 import os
 from pathlib import Path
 import sys
@@ -22,7 +21,8 @@ def emit(kind, **data):
 
 def run(request, cancelled, send=emit):
     from .conversion import ConversionCancelled, ConversionOptions, convert
-    from .output_layout import next_model_path, normalize_output_root
+    from .conversion_options import validated_options
+    from .output_layout import next_model_path, normalize_output_root, publish_model_directory
 
     files = [Path(p).resolve() for p in request.get("files", [])]
     if not files:
@@ -35,23 +35,10 @@ def run(request, cancelled, send=emit):
     for reserved in ("input_path", "output_path", "save_report"):
         if reserved in options:
             raise ValueError(f"不允许的参数：{reserved}")
-    choices = {
-        "output_format": ("stl", "obj"), "geometry": ("print", "visual"),
-        "water": ("cube", "drop", "level"), "fallback": ("cube", "ignore"),
-        "optimize": ("raw", "safe", "experimental"),
-        "components": ("keep", "remove-small", "main"),
-        "cavities": ("preserve", "fill"), "boolean_fallback": ("voxel32", "fail"),
-        "blender_lights": ("none", "material", "exact", "clustered"),
-    }
-    for key, values in choices.items():
-        if key in options and options[key] not in values:
-            raise ValueError(f"无效参数：{key}")
-    for key in ("scale", "minimum_thickness", "min_component_volume", "emission_strength"):
-        if key in options:
-            value = float(options[key])
-            if not math.isfinite(value) or value < 0 or (key in ("scale", "minimum_thickness") and value == 0):
-                raise ValueError(f"无效数值：{key}")
-            options[key] = value
+    validated = validated_options(ConversionOptions(
+        input_path=files[0], output_path=output, **options,
+    ))
+    options = {name: getattr(validated, name) for name in options}
     fmt = options.get("output_format", "stl")
     if fmt == "stl":
         options["geometry"] = "print"
@@ -78,11 +65,11 @@ def run(request, cancelled, send=emit):
             raise ValueError(f"批量任务中存在同名投影：{source.stem}")
         names.add(key)
     output.mkdir(parents=True, exist_ok=True)
-    destinations = [next_model_path(output, source, fmt) for source in files]
+    reserved = set()
+    destinations = [next_model_path(output, source, fmt, reserved) for source in files]
     for index, source in enumerate(files):
         if cancelled():
             raise ConversionCancelled()
-        destination = destinations[index].parent
         send("log", text=f"[{index + 1}/{len(files)}] {source.name}")
         # Publish the model set (model, materials, textures) only on success.
         with tempfile.TemporaryDirectory(prefix=".litmetica3d-", dir=output) as scratch:
@@ -98,8 +85,10 @@ def run(request, cancelled, send=emit):
             if cancelled():
                 raise ConversionCancelled()
             data = asdict(report)
-            data["output_path"] = str(destinations[index])
-            stage.rename(destination)
+            published = publish_model_directory(
+                stage, output, source, fmt, destinations[index], reserved,
+            )
+            data["output_path"] = str(published)
         send("report", report=data)
     send("complete", text=f"已完成 {len(files)} 个投影的转换。")
 

@@ -13,8 +13,8 @@ import numpy as np
 def _serialized_unique(values):
     unique, inverse = np.unique(values, axis=0, return_inverse=True)
     # Classify using the actual OBJ coordinates, not pre-serialization floats.
-    # Keep the same precision as the legacy exporter; never snap nearby points.
-    rows = [tuple(format(float(v), '.7g') for v in row) for row in unique]
+    # Nine significant digits round-trip every stored float32 coordinate.
+    rows = [tuple(format(float(v), '.9g') for v in row) for row in unique]
     exported = np.asarray(rows, dtype=np.float64).reshape(unique.shape)
     return rows, exported, inverse
 
@@ -35,10 +35,10 @@ def rectangle_mask(vertices, uvs):
     return rectangle & uv_corners & affine
 
 
-def write_indexed_geometry(mesh, stream, combinations, progress=None):
+def write_indexed_geometry(mesh, stream, combinations, progress=None, *, optimize=True):
     """Emit surfaces in original order, preserving UV seams and flat shading."""
     stats = dict(
-        enabled=True, source_vertices=mesh.vertex_count,
+        enabled=optimize, source_vertices=mesh.vertex_count,
         exported_vertices=0, source_uvs=mesh.vertex_count, exported_uvs=0,
         source_polygons=mesh.triangle_count, exported_polygons=0,
         quad_polygons=0, triangle_polygons=0,
@@ -49,11 +49,20 @@ def write_indexed_geometry(mesh, stream, combinations, progress=None):
     total = max(1, len(mesh.chunks))
     for number, chunk in enumerate(mesh.chunks):
         if progress:
-            progress(number / total, f'自动优化视觉模型：区块 {number + 1}/{total}')
-        vrows, positions, vi = _serialized_unique(chunk.vertices.reshape(-1, 3))
-        trows, coords, ti = _serialized_unique(chunk.uvs.reshape(-1, 2))
-        vi, ti = vi.reshape(-1, 4), ti.reshape(-1, 4)
-        is_quad = rectangle_mask(positions[vi], coords[ti])
+            action = '保形压缩' if optimize else '写出原始网格'
+            progress(number / total, f'{action}：区块 {number + 1}/{total}')
+        if optimize:
+            vrows, positions, vi = _serialized_unique(chunk.vertices.reshape(-1, 3))
+            trows, coords, ti = _serialized_unique(chunk.uvs.reshape(-1, 2))
+            vi, ti = vi.reshape(-1, 4), ti.reshape(-1, 4)
+            is_quad = rectangle_mask(positions[vi], coords[ti])
+        else:
+            vrows = [tuple(format(float(v), '.9g') for v in row)
+                     for row in chunk.vertices.reshape(-1, 3)]
+            trows = [tuple(format(float(v), '.9g') for v in row)
+                     for row in chunk.uvs.reshape(-1, 2)]
+            vi = ti = np.arange(len(vrows)).reshape(-1, 4)
+            is_quad = np.zeros(len(chunk.vertices), dtype=bool)
         stream.writelines('v ' + ' '.join(row) + '\n' for row in vrows)
         stream.writelines('vt ' + ' '.join(row) + '\n' for row in trows)
         vertex_base, uv_base = stats['exported_vertices'] + 1, stats['exported_uvs'] + 1
@@ -78,7 +87,7 @@ def write_indexed_geometry(mesh, stream, combinations, progress=None):
         stats['exported_vertices'] += len(vrows)
         stats['exported_uvs'] += len(trows)
     if progress:
-        progress(1.0, '自动优化完成：顶点 '
+        progress(1.0, 'OBJ 写出完成：顶点 '
                  f"{stats['source_vertices']} → {stats['exported_vertices']}，多边形 "
                  f"{stats['source_polygons']} → {stats['exported_polygons']}")
     return stats

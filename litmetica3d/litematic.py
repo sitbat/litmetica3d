@@ -7,7 +7,6 @@ Handles the bit-packed block storage format used by Litematica.
 Reference: https://litemapy.readthedocs.io/en/latest/litematics.html
 """
 
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -97,8 +96,16 @@ def load_schematic(path: str) -> Schematic:
 
 
 def load_schematic_info(path: str) -> Schematic:
-    """Load schematic metadata only (no block data)."""
-    nbt = read_gzip_nbt(path)
+    """Read metadata and region dimensions/palettes without decoding blocks.
+
+    Large region payloads are skipped while streaming the compressed NBT file,
+    so listing regions does not allocate the block array or entity structures.
+    Region ``blocks`` and ``tile_entities`` are empty in this summary.
+    """
+    nbt = read_gzip_nbt(path, skip_tags=frozenset({
+        "BlockStates", "TileEntities", "Entities", "PendingBlockTicks",
+        "PendingFluidTicks",
+    }))
     return _parse_schematic(nbt, load_blocks=False)
 
 
@@ -127,13 +134,14 @@ def _parse_schematic(nbt: dict[str, Any], load_blocks: bool = True) -> Schematic
     # ── Regions ─────────────────────────────────────────────────────────────
     regions_nbt = nbt.get("Regions", {})
     for region_name, region_data in regions_nbt.items():
-        if load_blocks:
-            schem.regions[region_name] = _parse_region(region_name, region_data)
+        schem.regions[region_name] = _parse_region(
+            region_name, region_data, load_blocks=load_blocks
+        )
 
     return schem
 
 
-def _parse_region(name: str, data: dict[str, Any]) -> Region:
+def _parse_region(name: str, data: dict[str, Any], load_blocks: bool = True) -> Region:
     # Position and Size
     pos = data.get("Position", {})
     position = (pos.get("x", 0), pos.get("y", 0), pos.get("z", 0))
@@ -153,10 +161,13 @@ def _parse_region(name: str, data: dict[str, Any]) -> Region:
 
     # ── Block state bitstream ───────────────────────────────────────────────
     block_states_nbt = data.get("BlockStates", [])
-    blocks = _decode_block_states(block_states_nbt, palette, size)
+    try:
+        blocks = _decode_block_states(block_states_nbt, palette, size) if load_blocks else {}
+    except ValueError as exc:
+        raise ValueError(f"Region {name!r}: {exc}") from exc
 
     # ── Tile entities ───────────────────────────────────────────────────────
-    tile_entities = data.get("TileEntities", [])
+    tile_entities = data.get("TileEntities", []) if load_blocks else []
 
     return Region(
         name=name,
@@ -184,14 +195,21 @@ def _decode_block_states(
     Iteration order: Y outer → Z middle → X inner.
     index = y * (sx * sz) + z * sx + x
     """
-    if not long_array or not palette:
-        return {}
-
     sx, sy, sz = size
     total_blocks = abs(sx) * abs(sy) * abs(sz)
+    if total_blocks == 0:
+        return {}
+    if not palette:
+        raise ValueError("Nonempty region has no block palette")
 
-    # Bits per block – at least 1
-    bits_per_block = max(1, math.ceil(math.log2(len(palette))))
+    # Litematica uses at least two bits even for one- or two-entry palettes.
+    bits_per_block = max(2, (len(palette) - 1).bit_length())
+    required_longs = (total_blocks * bits_per_block + 63) // 64
+    if len(long_array) < required_longs:
+        raise ValueError(
+            f"Truncated BlockStates: expected at least {required_longs} longs "
+            f"for {total_blocks} blocks, got {len(long_array)}"
+        )
 
     blocks: dict[tuple[int, int, int], int] = {}
 
@@ -202,21 +220,18 @@ def _decode_block_states(
                 palette_idx = _read_packed_index(
                     long_array, block_index, bits_per_block
                 )
+                if palette_idx >= len(palette):
+                    raise ValueError(
+                        f"Invalid palette index {palette_idx} at block {block_index}; "
+                        f"palette has {len(palette)} entries"
+                    )
 
                 # Normalized coordinates (handle negative sizes)
                 nx = x if sx >= 0 else x + sx + 1
                 ny = y if sy >= 0 else y + sy + 1
                 nz = z if sz >= 0 else z + sz + 1
 
-                if (
-                    palette_idx < len(palette)
-                    and palette[palette_idx].name not in {
-                        "minecraft:air",
-                        "minecraft:cave_air",
-                        "minecraft:void_air",
-                        "minecraft:structure_void",
-                    }
-                ):
+                if palette[palette_idx].name not in AIR_BLOCKS:
                     blocks[(nx, ny, nz)] = palette_idx
 
                 block_index += 1
@@ -231,14 +246,16 @@ def _read_packed_index(
     bit_offset = index * bits_per_block
     long_index = bit_offset >> 6
     start_bit = bit_offset & 63
-    if long_index >= len(long_array):
-        return 0
+    if index < 0 or bits_per_block < 1:
+        raise ValueError("Packed index and bit width must be nonnegative and positive")
+    if bit_offset + bits_per_block > len(long_array) * 64:
+        raise ValueError(f"Truncated BlockStates at block {index}")
 
     mask = (1 << bits_per_block) - 1
     current = long_array[long_index] & ((1 << 64) - 1)
     value = current >> start_bit
     bits_here = 64 - start_bit
-    if bits_here < bits_per_block and long_index + 1 < len(long_array):
+    if bits_here < bits_per_block:
         following = long_array[long_index + 1] & ((1 << 64) - 1)
         value |= following << bits_here
     return value & mask

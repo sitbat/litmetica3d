@@ -10,16 +10,21 @@ from dataclasses import asdict, dataclass, field
 from typing import Callable
 
 from .block_models import AIR_BLOCKS, Face, Vec3, _cuboid
-from .exporters.obj import OBJExporter
-from .exporters.stl import STLExporter
 from .exporters.array_mesh import export_obj_arrays, export_stl_arrays
 from .entity_models import get_entity_geometry
 from .emission import (
     block_light_level, default_light_color, emission_profile,
-    load_overrides, resolve_override,
+    load_overrides, resolve_override, validate_light_sources,
 )
 from .litematic import BlockState, load_schematic
 from .mesh import Mesh
+from .mesh_validation import transform_vertices, validate_export_geometry
+from .conversion_options import ConversionOptions, validated_options
+from .conversion_lights import (
+    _editable_light_position, _uses_editable_blender_lights,
+    _emission_enabled, _cluster_editable_lights,
+)
+from .prepared_scene import PreparedScene
 from .visual_mesh import (
     CompactVisualMesh, export_compact_obj, export_compact_stl,
 )
@@ -28,7 +33,7 @@ from .solid import (
     BooleanCancelled, SolidReport, cube_solid, face_geometry_key,
     is_unit_cube_faces,
     greedy_cube_boxes, split_box_by_chunks,
-    manifold_from_closed_faces, manifold_to_mesh, materialize_manifold,
+    manifold_from_closed_faces, materialize_manifold,
     process_components_and_cavities, union_balanced,
     validate_manifold, voxel32_fallback,
 )
@@ -50,102 +55,6 @@ DYE_COLORS = {
 }
 
 
-def _editable_light_position(
-    block_name: str,
-    position: tuple[int, int, int],
-    occupied: set[tuple[int, int, int]],
-) -> list[float]:
-    """Place helper lights where closed luminous cubes cannot trap them."""
-    base = block_name.split(":", 1)[-1]
-    closed_sources = {
-        "glowstone", "sea_lantern", "shroomlight", "redstone_lamp",
-        "ochre_froglight", "pearlescent_froglight", "verdant_froglight",
-        "magma_block", "crying_obsidian", "copper_bulb",
-        "exposed_copper_bulb", "weathered_copper_bulb",
-        "oxidized_copper_bulb",
-    }
-    center = [float(value) + 0.5 for value in position]
-    if base not in closed_sources and "copper_bulb" not in base:
-        return center
-    for dx, dy, dz in (
-        (0, 1, 0), (0, 0, -1), (0, 0, 1),
-        (1, 0, 0), (-1, 0, 0), (0, -1, 0),
-    ):
-        neighbor = (
-            position[0] + dx, position[1] + dy, position[2] + dz
-        )
-        if neighbor not in occupied:
-            return [
-                center[0] + dx * 0.56,
-                center[1] + dy * 0.56,
-                center[2] + dz * 0.56,
-            ]
-    return center
-
-
-def _uses_editable_blender_lights(mode: str) -> bool:
-    """Material mode emits through Cycles without creating Light objects."""
-    return mode in {"exact", "clustered"}
-
-
-def _emission_enabled(enabled: bool, mode: str) -> bool:
-    """The explicit none mode always disables masks and helper lights."""
-    return enabled and mode != "none"
-
-
-def _cluster_editable_lights(sources: list[dict]) -> list[dict]:
-    """Merge directly adjacent, equivalent sources for large Cycles scenes."""
-    groups: dict[tuple, list[dict]] = {}
-    for source in sources:
-        key = (
-            source["block"],
-            round(float(source["level"]), 4),
-            tuple(round(float(v), 4) for v in source["color"]),
-        )
-        groups.setdefault(key, []).append(source)
-    result = []
-    for members in groups.values():
-        by_position = {
-            tuple(item["block_position"]): item for item in members
-        }
-        remaining = set(by_position)
-        while remaining:
-            seed = min(remaining)
-            remaining.remove(seed)
-            stack = [seed]
-            component = []
-            while stack:
-                current = stack.pop()
-                component.append(by_position[current])
-                for axis in range(3):
-                    for delta in (-1, 1):
-                        neighbor = list(current)
-                        neighbor[axis] += delta
-                        neighbor = tuple(neighbor)
-                        if neighbor in remaining:
-                            remaining.remove(neighbor)
-                            stack.append(neighbor)
-            if len(component) == 1:
-                result.append(component[0])
-                continue
-            merged = dict(component[0])
-            merged["name"] = (
-                f"MC Cluster {merged['block'].split(':', 1)[-1]} "
-                f"[{len(component)} blocks]"
-            )
-            merged["position"] = [
-                sum(item["position"][axis] for item in component)
-                / len(component)
-                for axis in range(3)
-            ]
-            merged["power"] = sum(item["power"] for item in component)
-            merged["radius"] = max(
-                merged["radius"], len(component) ** (1 / 3) * 0.2
-            )
-            merged["block_position"] = component[0]["block_position"]
-            merged["block_count"] = len(component)
-            result.append(merged)
-    return result
 DYE_ORDER = tuple(DYE_COLORS)
 BANNER_PATTERNS = {
     "b": "base", "bs": "stripe_bottom", "ts": "stripe_top",
@@ -205,36 +114,6 @@ def _banner_texture(
 
 class ConversionCancelled(Exception):
     pass
-
-
-@dataclass
-class ConversionOptions:
-    input_path: pathlib.Path
-    output_path: pathlib.Path
-    asset_path: pathlib.Path | None = None
-    output_format: str = "stl"
-    stl_binary: bool = True
-    scale: float = 1.0
-    center: bool = False
-    water: str = "cube"
-    fallback: str = "cube"
-    optimize: str = "safe"
-    minimum_thickness: float = 1 / 16
-    regions: tuple[str, ...] = ()
-    color: bool = False
-    textures: bool = True
-    seamless_glass: bool = False
-    solid_textures: bool = False
-    geometry: str = "print"
-    components: str = "keep"
-    min_component_volume: float = 1 / 4096
-    cavities: str = "preserve"
-    boolean_fallback: str = "voxel32"
-    emission: bool = True
-    emission_strength: float = 1.0
-    emission_config: pathlib.Path | None = None
-    blender_lights: str = "exact"
-    save_report: bool = False
 
 
 @dataclass
@@ -407,8 +286,11 @@ def convert(
     progress: Progress | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> ConversionReport:
+    options = validated_options(options)
     progress = progress or (lambda stage, value, text: None)
     cancelled = cancelled or (lambda: False)
+    if cancelled():
+        raise ConversionCancelled()
     report = ConversionReport(
         str(options.input_path), str(options.output_path),
         water_mode=options.water,
@@ -426,6 +308,7 @@ def convert(
     )
     progress("load", 0.02, "读取 Litematic...")
     schematic = load_schematic(str(options.input_path))
+    emission_config = load_overrides(options.emission_config)
     asset_path = options.asset_path or bundled_asset_path()
     visual_alpha_geometry = options.geometry == "visual"
     loader = ModelLoader(
@@ -433,7 +316,6 @@ def convert(
         visual_textures=visual_alpha_geometry,
         solid_textures=options.solid_textures,
     )
-    emission_config = load_overrides(options.emission_config)
     light_sources: list[dict] = []
     emission_materials: set[tuple[str, float]] = set()
     emission_enabled = _emission_enabled(
@@ -447,44 +329,11 @@ def convert(
         )
     report.asset_block_count = loader.block_count
     try:
-        selected = set(options.regions) if options.regions else set(schematic.regions)
-        entries = []
-        tile_entities_world: dict[tuple[int, int, int], dict] = {}
-        for region_name, region in schematic.regions.items():
-            if region_name not in selected:
-                continue
-            for tile in region.tile_entities:
-                try:
-                    local_tile = (
-                        int(tile["x"]), int(tile["y"]), int(tile["z"])
-                    )
-                except (KeyError, TypeError, ValueError):
-                    continue
-                tile_world = tuple(
-                    local_tile[i] + region.position[i] for i in range(3)
-                )
-                tile_entities_world[tile_world] = tile
-            for local_pos, palette_index in region.blocks.items():
-                state = region.palette[palette_index]
-                world = tuple(
-                    local_pos[i] + region.position[i] for i in range(3)
-                )
-                entries.append((region_name, world, state))
-        report.source_blocks = len(entries)
-        if entries:
-            minimum = tuple(min(item[1][i] for item in entries) for i in range(3))
-            entries = [
-                (region, tuple(pos[i] - minimum[i] for i in range(3)), state)
-                for region, pos, state in entries
-            ]
-            tile_entities = {
-                tuple(pos[i] - minimum[i] for i in range(3)): tile
-                for pos, tile in tile_entities_world.items()
-            }
-        else:
-            tile_entities = {}
+        scene = PreparedScene(schematic, options.regions)
+        report.source_blocks = scene.block_count
+        tile_entities = scene.tile_entities()
         occupied_positions = {
-            pos for _, pos, state in entries if state.name not in AIR_BLOCKS
+            pos for _, pos, state in scene if state.name not in AIR_BLOCKS
         } if options.geometry == "visual" and emission_enabled and _uses_editable_blender_lights(options.blender_lights) else set()
 
         water_heights = {
@@ -492,13 +341,13 @@ def convert(
                 1.0 if state.name == "minecraft:bubble_column"
                 else _water_height(state.properties)
             )
-            for _, pos, state in entries
+            for _, pos, state in scene
             if state.name in {"minecraft:water", "minecraft:bubble_column"}
         } if options.water == "level" else {}
         from .glass import GLASS, glass_faces
         glass_neighbors = {}
         if options.geometry == 'visual' and options.seamless_glass:
-            for _, pos, state in entries:
+            for _, pos, state in scene:
                 if state.name not in GLASS:
                     continue
                 if options.water == 'cube' and state.properties.get('waterlogged') == 'true':
@@ -506,7 +355,7 @@ def convert(
                 glass_props = dict(state.properties)
                 if glass_props.get('waterlogged') == 'true':
                     glass_props['waterlogged'] = 'false'
-                if loader.resolve(state.name, glass_props, pos).status == 'ok':
+                if loader.resolve(state.name, glass_props, scene.source_position(pos)).status == 'ok':
                     glass_neighbors[pos] = state
             progress('geometry', 0.05, f'半透明无缝玻璃：已识别 {len(glass_neighbors)} 个玻璃方块/玻璃板')
         mesh = CompactVisualMesh() if options.geometry == "visual" else None
@@ -514,8 +363,9 @@ def convert(
         cube_positions: set[tuple[int, int, int]] = set()
         local_solid_cache = {}
         solid_report = SolidReport() if options.geometry == "print" else None
-        total = max(1, len(entries))
-        for index, (region, pos, state) in enumerate(entries):
+        total = max(1, scene.block_count)
+        for index, (region, pos, state) in enumerate(scene):
+            source_pos = scene.source_position(pos)
             if cancelled():
                 raise ConversionCancelled()
             if index % 1000 == 0:
@@ -540,7 +390,7 @@ def convert(
                 if waterlogged:
                     props["waterlogged"] = "false"
                 result = loader.resolve(
-                    state.name, props, pos, closed=options.geometry == "print"
+                    state.name, props, source_pos, closed=options.geometry == "print"
                 )
                 if result.status == "ok":
                     local_faces = result.faces
@@ -569,7 +419,7 @@ def convert(
                         else:
                             report.intentionally_invisible += 1
                     else:
-                        report.record(result, state, region, pos, options.fallback)
+                        report.record(result, state, region, source_pos, options.fallback)
                         if options.fallback == "cube":
                             local_faces = _cuboid(
                                 0, 0, 0, 1, 1, 1, state.name
@@ -592,7 +442,7 @@ def convert(
                 # overrides may give identical states different strengths.
                 local_faces = list(local_faces)
                 multiplier, override_color = resolve_override(
-                    emission_config, state.name, props, region, pos
+                    emission_config, state.name, state.properties, region, source_pos
                 )
                 multiplier *= max(0.0, float(options.emission_strength))
                 block_peak = 0.0
@@ -631,11 +481,11 @@ def convert(
                         base = state.name.split(":", 1)[-1]
                         light_sources.append({
                             "name": (
-                                f"MC {base} [{pos[0]},{pos[1]},{pos[2]}]"
+                                f"MC {base} [{source_pos[0]},{source_pos[1]},{source_pos[2]}]"
                             ),
                             "block": state.name,
                             "region": region,
-                            "block_position": list(pos),
+                            "block_position": list(source_pos),
                             "position": _editable_light_position(
                                 state.name, pos, occupied_positions
                             ),
@@ -779,14 +629,15 @@ def convert(
             validate_manifold(solid, solid_report)
             if not solid_report.printable:
                 raise ValueError("打印实体未通过流形检查，已停止导出")
+            offset = [0.0, 0.0, 0.0]
             if options.center and len(print_vertices):
                 low = print_vertices.min(axis=0)
                 high = print_vertices.max(axis=0)
-                print_vertices = print_vertices.copy()
-                print_vertices[:, 0] -= (low[0] + high[0]) / 2
-                print_vertices[:, 2] -= (low[2] + high[2]) / 2
-            if options.scale != 1:
-                print_vertices = print_vertices * options.scale
+                offset[0] = -(float(low[0]) + float(high[0])) / 2
+                offset[2] = -(float(low[2]) + float(high[2])) / 2
+            if options.scale != 1 or options.center:
+                print_vertices = transform_vertices(print_vertices, options.scale, offset)
+            validate_export_geometry(print_vertices, print_triangles)
             progress(
                 "solid", 0.915,
                 f"实体检查完成：{solid_report.component_count} 个独立壳体，"
@@ -819,6 +670,7 @@ def convert(
                 source["radius"] *= options.scale
                 source["power"] *= options.scale * options.scale
             mesh.transform(options.scale, options.center)
+            validate_light_sources(light_sources)
             report.emissive_materials = len(emission_materials)
             report.blender_lights = len(light_sources)
         if options.geometry == "print":
@@ -861,6 +713,7 @@ def convert(
                 ),
                 light_sources=light_sources,
                 progress=visual_progress,
+                optimize=options.optimize,
             )
             report.vertices = report.visual_optimization['exported_vertices']
         else:

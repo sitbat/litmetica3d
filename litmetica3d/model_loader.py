@@ -15,8 +15,10 @@ Usage:
 import json
 import hashlib
 import io
+import math
 import zipfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from .block_models import Face, Vec3
@@ -159,13 +161,111 @@ def _rotate_face(face: Face, axis: str, angle: float) -> Face:
     origin = Vec3(0.5, 0.5, 0.5)
     new_verts = [_rotate_vertex(v, axis, angle, origin) for v in face.vertices]
     new_normal = _rotate_vertex(face.normal, axis, angle, Vec3(0, 0, 0))
-    # Round normal to nearest axis direction
-    nx = round(new_normal.x)
-    ny = round(new_normal.y)
-    nz = round(new_normal.z)
+    # Remove quarter-turn floating point noise without flattening sloped faces.
+    nx = round(new_normal.x, 12)
+    ny = round(new_normal.y, 12)
+    nz = round(new_normal.z, 12)
     return Face(new_verts, Vec3(float(nx), float(ny), float(nz)),
                 face.material, face.uvs, face.texture,
                 face.emission_texture, face.emission_strength)
+
+
+def _rotate_element_face(face: Face, rotation: dict | None) -> Face:
+    if not rotation or not rotation.get("angle", 0):
+        return face
+    axis = rotation.get("axis", "y")
+    angle = float(rotation["angle"])
+    origin = Vec3(*(float(v) / 16 for v in rotation.get("origin", [8, 8, 8])))
+    # Minecraft compensates in the two axes perpendicular to the rotation
+    # axis: a 45-degree diagonal plane must still span one full block.
+    factor = 1 / math.cos(math.radians(angle)) if rotation.get("rescale") else 1.0
+    scale = tuple(1.0 if key == axis else factor for key in "xyz")
+    vertices = []
+    for vertex in face.vertices:
+        rotated = _rotate_vertex(vertex, axis, angle, origin)
+        vertices.append(Vec3(*(
+            getattr(origin, key) + (getattr(rotated, key) - getattr(origin, key)) * size
+            for key, size in zip("xyz", scale)
+        )))
+    normal = _rotate_vertex(face.normal, axis, angle, Vec3())
+    values = [getattr(normal, key) / size for key, size in zip("xyz", scale)]
+    length = math.sqrt(sum(value * value for value in values))
+    normal = Vec3(*(value / length for value in values)) if length else Vec3()
+    return Face(vertices, normal, face.material, face.uvs, face.texture,
+                face.emission_texture, face.emission_strength)
+
+
+# Face-local UV frames used by Minecraft's UV-lock transform. The second
+# vector is texture V before the exporter's V flip. UV lock uses the inverse
+# blockstate rotation between the destination and source face-local frames.
+_UV_FRAMES = {
+    "south": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+    "east": ((0, 0, -1), (0, 1, 0), (1, 0, 0)),
+    "west": ((0, 0, 1), (0, 1, 0), (-1, 0, 0)),
+    "north": ((-1, 0, 0), (0, 1, 0), (0, 0, -1)),
+    "up": ((1, 0, 0), (0, 0, -1), (0, 1, 0)),
+    "down": ((1, 0, 0), (0, 0, 1), (0, -1, 0)),
+}
+
+
+@lru_cache(maxsize=96)
+def _uv_lock_matrix(direction: str, rot_x: int, rot_y: int):
+    u_axis, v_axis, normal = _UV_FRAMES[direction]
+    target_normal = _rotate_vertex(Vec3(*normal), "x", -rot_x, Vec3())
+    target_normal = _rotate_vertex(target_normal, "y", -rot_y, Vec3())
+    target = tuple(round(getattr(target_normal, key)) for key in "xyz")
+    target_u, target_v, _ = next(
+        frame for frame in _UV_FRAMES.values() if frame[2] == target
+    )
+    columns = []
+    for vector in (target_u, target_v):
+        vector = _rotate_vertex(Vec3(*vector), "y", rot_y, Vec3())
+        vector = _rotate_vertex(vector, "x", rot_x, Vec3())
+        xyz = (vector.x, vector.y, vector.z)
+        columns.append(tuple(
+            round(sum(a * b for a, b in zip(xyz, basis)))
+            for basis in (u_axis, v_axis)
+        ))
+    return columns[0], columns[1]
+
+
+def _lock_element_uvs(elem: dict, rot_x: int, rot_y: int) -> dict:
+    """Lock UVs before alpha cutout/extrusion so geometry follows the texture."""
+    bounds = (*elem["from"], *elem["to"])
+    locked = {}
+    for direction, data in elem.get("faces", {}).items():
+        column_u, column_v = _uv_lock_matrix(direction, rot_x, rot_y)
+        source = _face_uvs(data.get("uv", _default_uv(direction, bounds)),
+                           data.get("rotation", 0), direction)
+        transformed = []
+        for u, v in source:
+            x, y = u - 0.5, 0.5 - v
+            transformed.append((
+                0.5 + column_u[0] * x + column_v[0] * y,
+                0.5 - column_u[1] * x - column_v[1] * y,
+            ))
+        # Re-express the four transformed corners in JSON's UV rectangle and
+        # quarter-turn representation, including mirrored/custom UV ranges.
+        us = [uv[0] * 16 for uv in transformed]
+        vs = [(1 - uv[1]) * 16 for uv in transformed]
+        matched = None
+        for u1, u2 in ((min(us), max(us)), (max(us), min(us))):
+            for v1, v2 in ((min(vs), max(vs)), (max(vs), min(vs))):
+                for angle in (0, 90, 180, 270):
+                    rect = [u1, v1, u2, v2]
+                    candidate = _face_uvs(rect, angle, direction)
+                    if all(abs(a - b) < 1e-9 for pair, expected in zip(candidate, transformed)
+                           for a, b in zip(pair, expected)):
+                        matched = {**data, "uv": rect, "rotation": angle}
+                        break
+                if matched is not None:
+                    break
+            if matched is not None:
+                break
+        if matched is None:
+            raise ValueError("UV lock requires quarter-turn blockstate rotations")
+        locked[direction] = matched
+    return {**elem, "faces": locked}
 
 
 # ── Model loader ───────────────────────────────────────────────────────────
@@ -463,7 +563,8 @@ class ModelLoader:
             if source is None:
                 raise ValueError(f'Missing glass texture: {base}')
             w, h = source.size
-            pixels = list(source.crop((w//4, h//4, 3*w//4, 3*h//4)).getdata())
+            pixels = [source.getpixel((x, y))
+                      for y in range(h//4, 3*h//4) for x in range(w//4, 3*w//4)]
             visible = [p for p in pixels if p[3] > 0]
             if base == 'glass':
                 rgba = (220, 240, 245, 40)
@@ -613,18 +714,7 @@ class ModelLoader:
     ) -> list[Face]:
         result = []
         for face in faces:
-            if elem_rot and elem_rot.get("angle", 0):
-                origin = elem_rot.get("origin", [8, 8, 8])
-                rot_origin = Vec3(*(float(v) / 16 for v in origin))
-                axis = elem_rot.get("axis", "y")
-                angle = float(elem_rot["angle"])
-                face = Face(
-                    [_rotate_vertex(v, axis, angle, rot_origin)
-                     for v in face.vertices],
-                    _rotate_vertex(face.normal, axis, angle, Vec3()),
-                    face.material, face.uvs, face.texture,
-                    face.emission_texture, face.emission_strength,
-                )
+            face = _rotate_element_face(face, elem_rot)
             if rot_x:
                 face = _rotate_face(face, "x", -float(rot_x))
             if rot_y:
@@ -1043,6 +1133,7 @@ class ModelLoader:
         rot_x: int = 0, rot_y: int = 0,
         closed: bool = False,
         properties: dict[str, str] | None = None,
+        uvlock: bool = False,
     ) -> list[Face]:
         """
         Convert a Minecraft model JSON to a list of Face objects.
@@ -1060,6 +1151,8 @@ class ModelLoader:
         faces: list[Face] = []
 
         for elem in elements:
+            if uvlock and self.visual_textures and (rot_x or rot_y):
+                elem = _lock_element_uvs(elem, rot_x, rot_y)
             fx, fy, fz = elem["from"]   # Minecraft pixel coords (0–16)
             tx, ty, tz = elem["to"]
             source_bounds = tuple(map(float, (fx, fy, fz, tx, ty, tz)))
@@ -1177,36 +1270,7 @@ class ModelLoader:
                                              + v * (source_uvs[3][i] - source_uvs[0][i]) for i in (0, 1))
                             face.uvs = [project_uv(vertex) for vertex in face.vertices]
 
-                # Apply element-level rotation
-                if elem_rot:
-                    origin = elem_rot.get("origin")
-                    if origin:
-                        ox, oy, oz = origin
-                        rot_origin = Vec3(ox / 16.0, oy / 16.0, oz / 16.0)
-                    else:
-                        rot_origin = Vec3(0.5, 0.5, 0.5)
-                    angle = elem_rot.get("angle", 0)
-                    axis = elem_rot.get("axis", "y")
-                    if angle != 0:
-                        face = Face(
-                            [_rotate_vertex(v, axis, float(angle), rot_origin)
-                             for v in face.vertices],
-                            _rotate_vertex(face.normal, axis, float(angle), Vec3(0, 0, 0)),
-                            face.material,
-                            face.uvs,
-                            face.texture,
-                            face.emission_texture,
-                            face.emission_strength,
-                        )
-                        # Re-round normal
-                        nx = round(face.normal.x)
-                        ny = round(face.normal.y)
-                        nz = round(face.normal.z)
-                        face = Face(
-                            face.vertices, Vec3(float(nx), float(ny), float(nz)),
-                            face.material, face.uvs, face.texture,
-                            face.emission_texture, face.emission_strength
-                        )
+                face = _rotate_element_face(face, elem_rot)
 
                 # Apply blockstate-level rotations
                 if rot_x:
@@ -1365,7 +1429,7 @@ class ModelLoader:
 
         return self._model_to_faces(
             model_data, material, rot_x, rot_y, closed=closed,
-            properties=properties,
+            properties=properties, uvlock=bool(variant.get("uvlock", False)),
         )
 
     def close(self):

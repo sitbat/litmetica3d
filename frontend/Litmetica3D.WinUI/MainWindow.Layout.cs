@@ -272,6 +272,7 @@ public sealed partial class MainWindow
                 Choice("water", "水体处理", ("完整方块", "cube"), ("忽略水体", "drop"), ("水位高度", "level")),
                 Choice("fallback", "未知方块", ("回落成立方体", "cube"), ("忽略", "ignore")),
                 Choice("geometry", "输出用途", ("打印 · 封闭实体", "print"), ("视觉 · 原版贴图", "visual")),
+                Choice("optimize", "视觉 OBJ 网格", ("原始网格", "raw"), ("保形压缩", "safe")),
                 Choice("components", "独立壳体", ("全部保留", "keep"), ("删除较小壳体", "remove-small"), ("仅保留主要壳体", "main")),
                 Choice("cavities", "封闭空腔", ("保留空腔", "preserve"), ("填充空腔", "fill")),
                 Choice("boolean_fallback", "并集失败", ("局部体素 32 回退", "voxel32"), ("失败并停止", "fail"))),
@@ -357,7 +358,7 @@ public sealed partial class MainWindow
                 Pair(python, Button("保存设置", (_, _) =>
                 { SaveSettings(); ShowNotice("已保存", "应用设置已更新。", InfoBarSeverity.Success); })),
                 Muted("留空即可使用内置环境，无需额外配置。", 12)),
-            Card("Litematica 3D", "v0.6.2 · WinUI 3", Muted("内置 Minecraft 26.2 模型与贴图，无需安装游戏。"),
+            Card("Litematica 3D", $"v{typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} · WinUI 3", Muted("内置 Minecraft 26.2 模型与贴图，无需安装游戏。"),
                 Muted("作者：b站@ZZHaccount", 12))));
     }
 }
